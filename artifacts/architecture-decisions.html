@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Decision Records — Cartculate</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">CARTCULATE</div>
+    <div class="sidebar-tagline">Architecture &amp; Product Docs</div>
+    <nav>
+      <a href="index.html">Overview</a>
+
+      <div class="sidebar-group-label">Product</div>
+      <a href="prd.html">Requirements Document</a>
+
+      <div class="sidebar-group-label">Architecture</div>
+      <a href="c4-diagrams.html">C4 Diagrams</a>
+      <a href="data-model.html">Data Model</a>
+      <a href="architecture-decisions.html" class="active">Decision Records</a>
+      <a href="api-reference.html">API Reference</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1>Architecture Decision Records</h1>
+    <p class="page-subtitle">Lightweight ADRs for decisions that weren't obvious from the spec alone, or that diverged from it for a concrete technical reason.</p>
+
+    <h2>ADR-001: Surrogate primary key for <code>user_cart_item</code></h2>
+    <p><strong>Context:</strong> The product spec's SQL defined <code>user_cart_item</code>'s primary key as the composite <code>(user_id, item_id, store_id, source_recipe_id)</code>, with <code>source_recipe_id</code> explicitly nullable to represent the "Others" bucket.</p>
+    <p><strong>Problem:</strong> PostgreSQL requires every column in a <code>PRIMARY KEY</code> constraint to be <code>NOT NULL</code>. A literal implementation of the spec's key would reject every "Others" row (<code>source_recipe_id IS NULL</code>) outright.</p>
+    <p><strong>Decision:</strong> Keep a surrogate <code>id BIGINT</code> primary key, and enforce the spec's intended business key as a regular <strong>unique index</strong> instead: <code>UNIQUE (user_id, item_id, store_id, source_recipe_id)</code>.</p>
+    <p><strong>Consequence:</strong> Postgres treats multiple <code>NULL</code>s as <em>distinct</em> under a unique index (unlike a primary key), so this preserves the one-row-per-(item, store, recipe) semantics the spec intended, without breaking on the "Others" case.</p>
+
+    <h2>ADR-002: <code>purchase_history</code> moved to receipt-level with a JSON manifest</h2>
+    <p><strong>Context:</strong> An early version of the schema had one row per item purchased. A later spec revision changed this to one row per <em>receipt</em>, with a manually-entered total and a JSON snapshot of the cart.</p>
+    <p><strong>Decision:</strong> Adopted the receipt-level model, storing the manifest as a native <code>jsonb</code> column.</p>
+    <p><strong>Consequences:</strong></p>
+    <ul>
+      <li><strong>Simpler write path:</strong> one <code>INSERT</code> per checkout instead of N.</li>
+      <li><strong>Simpler variance detection:</strong> reconciliation naturally compares one expected total against one actual total.</li>
+      <li><strong>Weaker query-ability:</strong> per-item analytics now require parsing the JSON manifest client-side rather than a simple <code>GROUP BY item_id</code> — an accepted tradeoff, not an oversight.</li>
+      <li>Postgres requires an explicit <code>::jsonb</code> cast when inserting a <code>text</code> value built via <code>||</code> concatenation — the "unknown" literal type Postgres can implicitly cast only applies to bare string literals.</li>
+    </ul>
+
+    <h2>ADR-003: Jackson 3, not Jackson 2</h2>
+    <p><strong>Context:</strong> <code>PurchaseHistoryService</code> needs to serialize a structured item list into JSON. Injecting Jackson's <code>ObjectMapper</code> failed to compile with <code>package com.fasterxml.jackson.databind does not exist</code>.</p>
+    <p><strong>Decision:</strong> Spring Boot 4 defaults to <strong>Jackson 3</strong>, whose classes live under <code>tools.jackson.databind</code>, with <code>JsonMapper</code> replacing <code>ObjectMapper</code> as the auto-configured bean type. Jackson 2 is not on the classpath by default. <code>PurchaseHistoryService</code> injects <code>tools.jackson.databind.json.JsonMapper</code> instead.</p>
+    <p><strong>Consequence:</strong> No <code>pom.xml</code> change was needed — <code>spring-boot-starter-web</code> already pulls in Jackson 3 via <code>spring-boot-starter-json</code>. Any future JSON handling in this codebase should use the Jackson 3 types, not assume Jackson 2 APIs from older references.</p>
+
+    <h2>ADR-004: <code>ddl-auto=update</code> requires a database reset after certain schema changes</h2>
+    <p><strong>Context:</strong> Several schema changes (new required columns on <code>recipes</code>, <code>users</code>, <code>purchase_history</code>) caused startup failures: <code>ERROR: column "X" of relation "Y" contains null values</code>.</p>
+    <p><strong>Root cause:</strong> Hibernate's <code>ddl-auto=update</code> can only <em>add</em> schema — it cannot safely backfill a <code>NOT NULL</code> column being added to a table that already has existing rows.</p>
+    <p><strong>Decision:</strong> No code-level fix applies (it's an inherent limitation of <code>update</code> mode). The operational answer: when a schema change adds a required column and local dev data already exists, drop and recreate the database before the next run, letting Hibernate build the schema fresh and <code>data.sql</code>'s empty-table guard reseed it automatically.</p>
+    <p><strong>Consequence:</strong> Acceptable for a pre-production system with disposable seed data. Would <strong>not</strong> be acceptable once real user data exists — at that point, <code>ddl-auto</code> should move to <code>validate</code> and real migration tooling (Flyway/Liquibase) should own schema changes.</p>
+
+    <h2>ADR-005: Home/Away mode is persisted server-side</h2>
+    <p><strong>Context:</strong> Feature 5's Home/Away toggle could have been simple local component state, reset on every app restart.</p>
+    <p><strong>Decision:</strong> Persist the mode on the <code>User</code> entity (<code>current_mode VARCHAR(10)</code>), with <code>GET</code>/<code>PATCH /api/users/{userId}/mode</code> endpoints, so it survives restarts and (eventually) syncs across devices.</p>
+    <p><strong>Consequence:</strong> <code>CartScreen</code> fetches the mode on mount and calls the update endpoint optimistically, the same pattern used elsewhere for cart mutations.</p>
+
+    <h2>ADR-006: <code>category</code> threaded through DTOs after the fact</h2>
+    <p><strong>Context:</strong> Feature 6's reconciliation flow needed each cart item's <code>category</code> to build the purchase manifest — but <code>CartRowDto</code> and <code>RecipeIngredientDto</code> didn't originally expose it, even though <code>Item</code> always had the column.</p>
+    <p><strong>Decision:</strong> Added <code>category</code> to both DTOs and their frontend TypeScript counterparts, threading it through every function that constructs these objects.</p>
+    <p><strong>Consequence:</strong> No database migration was required — unlike ADR-004's scenario, <code>category</code> already existed as a column; this was purely a DTO/type-surface gap.</p>
+
+    <h2>ADR-007: Client-side regex sanitization enforces decimal precision, not just server-side column types</h2>
+    <p><strong>Context:</strong> Quantities and prices are stored as <code>NUMERIC(10,2)</code>/<code>NUMERIC(10,3)</code> in Postgres, but nothing stopped a user from typing something like <code>12.4567</code> or <code>12..3</code> into a free-text field (the reconciliation screen's actual receipt total, new-recipe ingredient quantities) before it ever reached the backend.</p>
+    <p><strong>Decision:</strong> Added <code>src/utils/inputSanitization.ts</code> on the frontend: <code>sanitizeDecimalInput()</code> strips invalid characters and caps decimal places as-you-type (on every <code>onChangeText</code>, not just on submit), <code>sanitizeIntegerInput()</code> does the same for whole-number-only fields (discrete pc/pack quantities), and a shared <code>formatCurrency()</code> replaced scattered <code>.toFixed(2)</code> calls across components for consistent display.</p>
+    <p><strong>Consequence:</strong> Invalid characters never appear in the field at all, rather than being caught only at validation time - a stricter guarantee than server-side type coercion alone, and it also means the same 2-decimal-place rule can't drift between different components' <code>.toFixed()</code> calls, since they all defer to the one shared function now.</p>
+
+    <h2>ADR-008: Per-source pantry/checkout controls moved into the accordion breakdown</h2>
+    <p><strong>Context:</strong> When an item was split across multiple recipe sources (e.g. Carrots needed by both Caldereta and Giniling), the Home Mode pantry-override stepper and Away Mode checkout checkbox only ever targeted one underlying row (<code>primaryRowId</code> - the manual "Others" row if one existed, otherwise whichever source arrived first). There was no way to mark just the Caldereta-sourced carrots as already-home while leaving the Giniling-sourced ones untouched.</p>
+    <p><strong>Decision:</strong> Added per-source <code>overridePantryQty</code>, <code>overrideReason</code>, and <code>isCheckedCheckout</code> fields directly onto each <code>BreakdownEntry</code> (not just the item-level aggregate), and moved the actual stepper/checkbox controls into each expanded accordion row for multi-source items. Single-source items are unaffected - they still show one item-level control below the main row via <code>primaryRowId</code>, since there's nothing to disambiguate.</p>
+    <p><strong>Consequence:</strong> <code>cartLogic.consolidateCart()</code> now populates these fields per breakdown entry during aggregation. No backend or database change was needed - the underlying <code>user_cart_item</code> rows already carried per-row pantry/checkout state; this was purely a frontend gap in how that state was surfaced.</p>
+
+    <div class="footer-nav">
+      <a href="data-model.html">← Data Model</a>
+      <a href="api-reference.html">API Reference →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>C4 Diagrams — Cartculate</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">CARTCULATE</div>
+    <div class="sidebar-tagline">Architecture &amp; Product Docs</div>
+    <nav>
+      <a href="index.html">Overview</a>
+
+      <div class="sidebar-group-label">Product</div>
+      <a href="prd.html">Requirements Document</a>
+
+      <div class="sidebar-group-label">Architecture</div>
+      <a href="c4-diagrams.html" class="active">C4 Diagrams</a>
+      <a href="data-model.html">Data Model</a>
+      <a href="architecture-decisions.html">Decision Records</a>
+      <a href="api-reference.html">API Reference</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1>C4 Architecture Diagrams</h1>
+    <p class="page-subtitle">Three levels of the <a href="https://c4model.com/" target="_blank">C4 model</a>: System Context, Container, and Component (backend only).</p>
+
+    <h2>1. System Context</h2>
+    <p>Who uses Cartculate, and what it talks to.</p>
+
+    <div class="mermaid-wrap">
+      <pre class="mermaid">
+C4Context
+    title Cartculate — System Context
+
+    Person(shopper, "Household Shopper", "Plans meals via recipes, shops across multiple stores, tracks spend")
+
+    System(cartculate, "Cartculate", "Consolidates shopping lists across stores, tracks pricing, pantry stock, and spend")
+
+    System_Ext(visionLlm, "Vision/LLM Provider", "Planned: OCR + item matching for scanned receipts. Not yet integrated.")
+
+    Rel(shopper, cartculate, "Manages cart, recipes, checks out, reviews spending", "Mobile app")
+    Rel(cartculate, visionLlm, "Would send receipt images, receive structured item matches", "HTTPS (planned)")
+
+    UpdateRelStyle(cartculate, visionLlm, $lineStyle="dashed")
+      </pre>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title">Notes</div>
+      <p>There is exactly one first-class actor today: the household shopper. No multi-tenant/family-sharing concept exists yet.</p>
+      <p>The Vision/LLM Provider integration is drawn with a dashed relationship because it is planned but not implemented — the receipt scanner's OCR step currently operates against mock data; the confirm step's writes are real.</p>
+    </div>
+
+    <h2>2. Container</h2>
+    <p>The three deployable/runnable pieces and how they talk to each other.</p>
+
+    <div class="mermaid-wrap">
+      <pre class="mermaid">
+C4Container
+    title Cartculate — Container Diagram
+
+    Person(shopper, "Household Shopper")
+
+    System_Boundary(cartculate, "Cartculate") {
+        Container(mobileApp, "Cartculate Mobile App", "React Native, TypeScript", "Cart, Recipes, Insights, and Receipt Scanner screens")
+        Container(api, "Cartculate API", "Java 25, Spring Boot 4.1", "REST API: cart, recipes, purchase history, store pricing, user mode")
+        ContainerDb(db, "Cartculate Database", "PostgreSQL 14", "Users, items, stores, prices, recipes, active cart, receipt history")
+    }
+
+    Rel(shopper, mobileApp, "Uses", "Touch")
+    Rel(mobileApp, api, "Reads/writes cart, recipes, purchases, prices, mode", "HTTPS/JSON, REST")
+    Rel(api, db, "Reads/writes via Spring Data JPA / Hibernate", "JDBC")
+      </pre>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title">Notes</div>
+      <p>The mobile app holds no local persistence of its own — every screen fetches from the API on mount and calls it directly for every mutation. Optimistic UI updates exist for fast interactions (+/-, pantry, checkbox) with rollback-via-refetch on failure.</p>
+      <p><code>API_BASE_URL</code> differs by platform during development (Android emulator needs <code>10.0.2.2</code> rather than <code>localhost</code>).</p>
+    </div>
+
+    <h2>3. Component (backend)</h2>
+    <p>Inside the Cartculate API container: controllers → services → repositories → JPA entities.</p>
+
+    <div class="mermaid-wrap">
+      <pre class="mermaid">
+C4Component
+    title Cartculate API — Component Diagram
+
+    Container_Boundary(api, "Cartculate API") {
+        Component(cartController, "CartController", "Spring RestController", "Cart CRUD, pantry-override, checkout-status, master-reset, complete-checkout")
+        Component(recipeController, "RecipeController", "Spring RestController", "GET/POST recipes")
+        Component(purchaseController, "PurchaseHistoryController", "Spring RestController", "GET/POST receipt-level purchase history")
+        Component(storePriceController, "StorePriceController", "Spring RestController", "GET/PUT store prices")
+        Component(userController, "UserController", "Spring RestController", "GET user, PATCH Home/Away mode")
+
+        Component(cartService, "CartService", "Spring Service", "Cart consolidation, adjustment, pantry override, checkout toggle, trip completion")
+        Component(recipeService, "RecipeService", "Spring Service", "Recipe CRUD, ingredient store-routing")
+        Component(purchaseService, "PurchaseHistoryService", "Spring Service", "Archives receipts, serializes item manifest via Jackson 3")
+        Component(storePriceService, "StorePriceService", "Spring Service", "Store price lookups and bulk upserts")
+        Component(userService, "UserService", "Spring Service", "User profile + mode persistence")
+
+        ComponentDb(repos, "Spring Data JPA Repositories", "8 repository interfaces", "User, Item, Store, StorePrice, Recipe, RecipeIngredient, UserCartItem, PurchaseHistory")
+    }
+
+    ContainerDb(db, "PostgreSQL", "Database")
+
+    Rel(cartController, cartService, "calls")
+    Rel(recipeController, recipeService, "calls")
+    Rel(purchaseController, purchaseService, "calls")
+    Rel(storePriceController, storePriceService, "calls")
+    Rel(userController, userService, "calls")
+
+    Rel(cartService, repos, "uses")
+    Rel(recipeService, repos, "uses")
+    Rel(purchaseService, repos, "uses")
+    Rel(storePriceService, repos, "uses")
+    Rel(userService, repos, "uses")
+
+    Rel(repos, db, "JPA/Hibernate", "JDBC")
+      </pre>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title">Notes</div>
+      <p>Every controller follows the same thin-controller/fat-service pattern: controllers only translate HTTP ↔ DTOs and delegate to a service.</p>
+      <p>DTOs are hand-written to mirror the frontend's TypeScript types field-for-field, avoiding a mapping/translation layer on either side.</p>
+      <p><code>RecipeService</code> and <code>CartService</code> both depend on <code>StorePriceRepository</code> directly for read-side price lookups, rather than going through <code>StorePriceService</code>, since those are simple filtered reads rather than the bulk-upsert logic that service owns.</p>
+    </div>
+
+    <div class="footer-nav">
+      <a href="prd.html">← Product Requirements</a>
+      <a href="data-model.html">Data Model →</a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#EFF5F4',
+      primaryBorderColor: '#2E6F6E',
+      primaryTextColor: '#1C2321',
+      lineColor: '#5C635F',
+      secondaryColor: '#F1EFE8',
+      tertiaryColor: '#FAFAF7',
+      fontFamily: 'IBM Plex Sans, sans-serif'
+    }
+  });
+</script>
+</body>
+</html>

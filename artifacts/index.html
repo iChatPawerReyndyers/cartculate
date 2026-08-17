@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cartculate — Architecture Docs</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">CARTCULATE</div>
+    <div class="sidebar-tagline">Architecture &amp; Product Docs</div>
+    <nav>
+      <a href="index.html" class="active">Overview</a>
+
+      <div class="sidebar-group-label">Product</div>
+      <a href="prd.html">Requirements Document</a>
+
+      <div class="sidebar-group-label">Architecture</div>
+      <a href="c4-diagrams.html">C4 Diagrams</a>
+      <a href="data-model.html">Data Model</a>
+      <a href="architecture-decisions.html">Decision Records</a>
+      <a href="api-reference.html">API Reference</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1>Architectural Artifacts</h1>
+    <p class="page-subtitle">Product requirements, C4 diagrams, data model, and API reference for Cartculate — describing the system as actually implemented.</p>
+
+    <div class="callout">
+      <div class="callout-title">A note on accuracy</div>
+      <p>These documents describe Cartculate <strong>as actually built</strong> — in <code>cartculate-app</code> (React Native + TypeScript) and <code>cartculate-server</code> (Spring Boot 4.1 / Java 25) — not an aspirational or original-spec state. Wherever the original product spec described something not yet built, it's marked <span class="status status-planned">○ Planned</span> rather than documented as if it exists.</p>
+    </div>
+
+    <h2>What's in here</h2>
+
+    <div class="feature-card">
+      <div class="feature-card-header"><h3>Product Requirements Document</h3></div>
+      <p>Goals, personas, functional requirements per feature, and business rules — with each feature's build status called out explicitly.</p>
+      <p><a href="prd.html">Read the PRD →</a></p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header"><h3>C4 Diagrams</h3></div>
+      <p>System Context, Container, and Component diagrams following the C4 model, rendered live from Mermaid.</p>
+      <p><a href="c4-diagrams.html">View diagrams →</a></p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header"><h3>Data Model</h3></div>
+      <p>Entity-relationship diagram and table-by-table documentation of the PostgreSQL schema, including known schema-modeling tradeoffs.</p>
+      <p><a href="data-model.html">View data model →</a></p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header"><h3>Architecture Decision Records</h3></div>
+      <p>Six ADRs covering the non-obvious technical calls made during the build — from primary-key design to a Spring Boot 4 / Jackson 3 migration gotcha.</p>
+      <p><a href="architecture-decisions.html">Read the ADRs →</a></p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header"><h3>API Reference</h3></div>
+      <p>Every REST endpoint, grouped by controller, with request/response shapes.</p>
+      <p><a href="api-reference.html">View API reference →</a></p>
+    </div>
+
+    <h2>Where this folder lives</h2>
+    <p>Place this whole <code>artifacts/</code> folder at your project root, as a sibling to your frontend and backend folders:</p>
+    <div class="file-tree">your-project-root/
+├── cartculate-app/       (React Native frontend)
+├── cartculate-server/    (Spring Boot backend)
+└── artifacts/            (this folder)
+    ├── index.html
+    ├── styles.css
+    ├── prd.html
+    ├── c4-diagrams.html
+    ├── data-model.html
+    ├── architecture-decisions.html
+    └── api-reference.html</div>
+
+    <p>Open <code>index.html</code> directly in a browser — everything (Mermaid diagrams included) renders client-side via CDN, no build step or local server required.</p>
+
+    <div class="footer-nav">
+      <span></span>
+      <a href="prd.html">Product Requirements Document →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

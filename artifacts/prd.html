@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Requirements — Cartculate</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">CARTCULATE</div>
+    <div class="sidebar-tagline">Architecture &amp; Product Docs</div>
+    <nav>
+      <a href="index.html">Overview</a>
+
+      <div class="sidebar-group-label">Product</div>
+      <a href="prd.html" class="active">Requirements Document</a>
+
+      <div class="sidebar-group-label">Architecture</div>
+      <a href="c4-diagrams.html">C4 Diagrams</a>
+      <a href="data-model.html">Data Model</a>
+      <a href="architecture-decisions.html">Decision Records</a>
+      <a href="api-reference.html">API Reference</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1>Product Requirements Document</h1>
+    <p class="page-subtitle">React Native (TypeScript) frontend · Spring Boot 4.1 / Java 25 backend · PostgreSQL</p>
+
+    <h2>1. Overview</h2>
+    <p>Cartculate is a smart, playful grocery and recipe-scaling app that lets a household manage a shared shopping list across multiple stores, with dynamic pricing, recipe-driven ingredient aggregation, pantry-stock awareness, and spending analytics.</p>
+
+    <h3>1.1 Problem statement</h3>
+    <p>Grocery shopping across multiple stores with a mix of recipe-driven needs and standalone items is hard to track by hand: prices vary by store, the same ingredient shows up across multiple recipes, and what's already stocked at home versus what actually needs buying gets lost between a paper list and a shopping trip.</p>
+
+    <h3>1.2 Goals</h3>
+    <ul>
+      <li>Consolidate ingredient needs across recipes and manual entries into one store-sectioned shopping list.</li>
+      <li>Track per-store, per-item pricing so the user always sees an accurate running cost.</li>
+      <li>Let the user account for pantry stock already on hand, so the "need to buy" quantity is accurate, not just the recipe-required total.</li>
+      <li>Support a lightweight in-store checkout flow (checking items off) and reconcile the trip against the actual receipt total afterward.</li>
+      <li>Surface spending patterns over time (by store, by category, by item price trend).</li>
+    </ul>
+
+    <h3>1.3 Non-goals (current scope)</h3>
+    <ul>
+      <li>Multi-user / multi-household support. The system currently assumes a single seeded user (<code>CURRENT_USER_ID</code>); no authentication exists yet.</li>
+      <li>Real-time collaborative editing of a shared cart.</li>
+      <li>Payment or checkout integration with any store.</li>
+    </ul>
+
+    <h2>2. Personas</h2>
+    <p><strong>Primary persona — "The Household Shopper":</strong> Plans meals via recipes, shops at 2+ stores for better prices, wants to know what's already at home before buying more, and wants an accurate running total while shopping.</p>
+
+    <h2>3. Functional Requirements</h2>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <h3>Feature 1 — The Unified Shopping Cart (Main Screen)</h3>
+        <span class="status status-done">● Implemented</span>
+      </div>
+      <ul>
+        <li>Items are grouped by store section (e.g. Puregold, S&amp;R).</li>
+        <li><strong>Consolidated Ingredient Aggregation:</strong> if the same item is needed by multiple recipes (and/or added manually), the cart shows one consolidated line with a combined quantity.</li>
+        <li><strong>Expandable breakdown (accordion):</strong> tapping a consolidated item (when it has more than one source) expands a breakdown showing how much came from each recipe, plus an "Others" bucket for manually-added quantity.</li>
+        <li><strong>+ / − controls:</strong> manual taps always adjust the item's "Others" bucket for that store; recipe-sourced quantity is only changed by editing the recipe's scale factor.</li>
+        <li><strong>Per-store pricing:</strong> the same item can have a different price at each store (<code>Store_Price</code>), and the displayed running total reflects <code>quantity × store price</code> per item, summed across the active cart.</li>
+        <li><strong>Quantity-zero items</strong> are excluded from the active total but remain visible in a separate "Cart excluded" section at the bottom (they're not deleted, just inactive for the current trip).</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <h3>Feature 2 — Smart Recipe Tab</h3>
+        <span class="status status-done">● Implemented</span>
+      </div>
+      <ul>
+        <li>Users can view saved recipes, each showing its base ingredient list.</li>
+        <li><strong>Scale factor:</strong> each recipe card has a scale selector (×0.5 / ×1 / ×2) that multiplies every ingredient's quantity.</li>
+        <li><strong>Add to cart:</strong> pushes the scaled ingredients into the cart, tagged with that recipe as the source (drives the accordion breakdown on the Cart screen).</li>
+        <li><strong>Store routing per ingredient:</strong> an ingredient can have an explicit target store; if none is set, the system defaults to whichever store has the lowest known price for that item.</li>
+        <li><strong>Recipe creation:</strong> "+ New recipe" opens a form (name, dynamic ingredient rows with an item picker, quantity, and unit dropdown) that calls <code>POST /api/users/{userId}/recipes</code>.</li>
+      </ul>
+      <blockquote>The creation form doesn't yet expose per-ingredient store routing — new recipes default to the cheapest-price-store fallback, even though the backend supports explicit routing via <code>targetStoreId</code>.</blockquote>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <h3>Feature 3 — Smart Insights &amp; Statistics Tab</h3>
+        <span class="status status-done">● Implemented</span>
+      </div>
+      <ul>
+        <li><strong>Monthly budget tracking:</strong> a progress bar comparing spend-to-date against a budget limit for the current month.</li>
+        <li><strong>Store-by-store comparison:</strong> a bar chart of total spend per store.</li>
+        <li><strong>Spending by category:</strong> a pie chart breaking down spend by item category (Vegetables, Meat, Toiletries, etc.), derived by flattening every archived receipt's item manifest.</li>
+        <li><strong>Price trend:</strong> a line chart tracking one item's price over time.</li>
+      </ul>
+      <blockquote>Known limitation: trends the item's price across all stores it appeared at, not one specific store — the receipt manifest schema records <code>storeId</code> at the receipt level, not per line item.</blockquote>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <h3>Feature 4 — AI-Powered Receipt Scanner</h3>
+        <span class="status status-partial">◐ Partial</span>
+      </div>
+      <ul>
+        <li><strong>Capture:</strong> user takes a photo or uploads a receipt image.</li>
+        <li><strong>Review screen:</strong> shows each parsed line next to its matched master item, with a "matched" or "needs review" badge; ambiguous matches offer a dropdown of alternative matches.</li>
+        <li><strong>Confirm:</strong> on confirm, the reviewed items are archived as a purchase and their prices upsert into <code>Store_Prices</code>.</li>
+      </ul>
+      <blockquote>Not yet implemented: the actual OCR + LLM matching call — <code>POST /api/receipts/scan</code> currently returns a hardcoded mock response, pending a decision on which vision/LLM provider to integrate. The "Confirm" step, however, calls the real backend endpoints.</blockquote>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <h3>Feature 5 — Home Mode / Away Mode &amp; Pantry Overrides</h3>
+        <span class="status status-done">● Implemented</span>
+      </div>
+      <ul>
+        <li>A persisted (server-side) toggle between <strong>Home Mode</strong> and <strong>Away Mode</strong> on the Cart screen.</li>
+        <li><strong>Home Mode:</strong> each item shows a secondary "already have" stepper (pantry override). The displayed "need to buy" quantity is <code>totalQuantity − pantryOverrideQty</code>, floored at zero. An optional free-text/emoji reason (e.g. "Freezer Find") can be attached.</li>
+        <li><strong>Away Mode:</strong> each item instead shows a checkbox for checking it off mid-trip.</li>
+        <li><strong>Master Reset:</strong> a destructive action (with a confirmation prompt) that clears every checkbox across the whole cart without touching quantities or pantry overrides — an "abandon this trip's checkout progress" escape hatch, distinct from the per-store reconciliation flow below.</li>
+        <li>Items split across multiple recipe sources (e.g. Carrots needed by both Caldereta and Giniling) get <strong>independent pantry-override/checkout controls per source</strong>, shown inside the accordion breakdown rather than one shared control for the whole consolidated item.</li>
+      </ul>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <h3>Feature 6 — Trip Conclusion &amp; Auto-Reconciliation</h3>
+        <span class="status status-done">● Implemented</span>
+      </div>
+      <ul>
+        <li>From Away Mode, once a store section has at least one checked-off item, a <strong>"Done Checkout"</strong> button appears for that store.</li>
+        <li>Tapping it opens a reconciliation screen showing the checked-off items and their expected cost, an input for the actual receipt total, and a <strong>price variance alert</strong> if they differ beyond a rounding tolerance.</li>
+        <li><strong>Confirm</strong> archives the trip as one receipt-level <code>Purchase_History</code> row (with a JSON item manifest) and resets the checked-off items' quantities to zero, clearing their checkboxes.</li>
+        <li>Per product decision: a price variance is logged as part of the receipt total but does <strong>not</strong> automatically redistribute across individual item prices in <code>Store_Prices</code> — those still only get updated via the Receipt Scanner or manual entry.</li>
+      </ul>
+    </div>
+
+    <h2>4. Data Model Summary</h2>
+    <p>See the <a href="data-model.html">Data Model</a> page for the full ER diagram. Key entities: <code>User</code> (with a persisted Home/Away mode), <code>Item</code> (master catalog with category), <code>Store</code>, <code>Store_Price</code> (per item-store price), <code>Recipe</code> / <code>Recipe_Ingredient</code>, <code>User_Cart_Item</code> (the active cart, with pantry-override and checkout-checkbox state), and <code>Purchase_History</code> (receipt-level, with a JSON item manifest).</p>
+
+    <h2>5. Non-Functional Notes</h2>
+    <ul>
+      <li><strong>Decimal precision:</strong> quantities and prices are stored as <code>NUMERIC(10,2)</code> or <code>NUMERIC(10,3)</code> depending on the field. On the frontend, <code>src/utils/inputSanitization.ts</code> enforces this at input time — free-text quantity/currency fields (reconciliation's actual receipt total, new-recipe ingredient quantities) are sanitized as-you-type via regex, capping decimals at 2 places, and every currency display goes through a shared <code>formatCurrency()</code> helper for consistent formatting.</li>
+      <li><strong>Schema evolution:</strong> the backend uses Hibernate's <code>ddl-auto=update</code>, which can only <em>add</em> schema — it cannot safely add a <code>NOT NULL</code> column to a table that already has rows. See <a href="architecture-decisions.html">ADR-004</a> for the operational implication.</li>
+      <li><strong>Auth:</strong> none yet. <code>CURRENT_USER_ID</code> is hardcoded on the frontend pending a real login/session system.</li>
+    </ul>
+
+    <h2>6. Out of Scope / Not Yet Implemented</h2>
+    <p>Called out explicitly so this document doesn't imply these exist:</p>
+    <ul>
+      <li><span class="status status-planned">○ Planned</span> Real OCR + LLM-backed receipt scanning (currently mocked).</li>
+      <li><span class="status status-planned">○ Planned</span> "Snack Fund" leftover-budget widget.</li>
+      <li><span class="status status-planned">○ Planned</span> Multi-user auth and session management.</li>
+    </ul>
+
+    <div class="footer-nav">
+      <a href="index.html">← Overview</a>
+      <a href="c4-diagrams.html">C4 Diagrams →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

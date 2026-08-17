@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Model — Cartculate</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">CARTCULATE</div>
+    <div class="sidebar-tagline">Architecture &amp; Product Docs</div>
+    <nav>
+      <a href="index.html">Overview</a>
+
+      <div class="sidebar-group-label">Product</div>
+      <a href="prd.html">Requirements Document</a>
+
+      <div class="sidebar-group-label">Architecture</div>
+      <a href="c4-diagrams.html">C4 Diagrams</a>
+      <a href="data-model.html" class="active">Data Model</a>
+      <a href="architecture-decisions.html">Decision Records</a>
+      <a href="api-reference.html">API Reference</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1>Data Model</h1>
+    <p class="page-subtitle">The PostgreSQL schema as built by the JPA entities, seeded by <code>data.sql</code>.</p>
+
+    <h2>Entity-Relationship Diagram</h2>
+
+    <div class="mermaid-wrap">
+      <pre class="mermaid">
+erDiagram
+    USERS ||--o{ RECIPES : owns
+    USERS ||--o{ USER_CART_ITEM : has
+    USERS ||--o{ PURCHASE_HISTORY : "archived by"
+
+    ITEMS ||--o{ STORE_PRICES : "priced at"
+    STORES ||--o{ STORE_PRICES : offers
+
+    ITEMS ||--o{ RECIPE_INGREDIENTS : "used in"
+    RECIPES ||--o{ RECIPE_INGREDIENTS : contains
+    STORES ||--o{ RECIPE_INGREDIENTS : "optionally routed to"
+
+    ITEMS ||--o{ USER_CART_ITEM : "cart line for"
+    STORES ||--o{ USER_CART_ITEM : "cart line at"
+    RECIPES ||--o{ USER_CART_ITEM : "sourced from (nullable)"
+
+    STORES ||--o{ PURCHASE_HISTORY : "receipt from"
+
+    USERS {
+        bigint id PK
+        varchar name
+        varchar email UK
+        varchar current_mode "HOME or AWAY, default HOME"
+    }
+
+    ITEMS {
+        bigint id PK
+        varchar name
+        varchar category
+    }
+
+    STORES {
+        bigint id PK
+        varchar name UK
+    }
+
+    STORE_PRICES {
+        bigint item_id PK_FK
+        bigint store_id PK_FK
+        numeric price_amount "NUMERIC(10,2)"
+    }
+
+    RECIPES {
+        bigint id PK
+        varchar recipe_name
+        bigint user_id FK
+        int current_multiplier "default 0"
+    }
+
+    RECIPE_INGREDIENTS {
+        bigint recipe_id PK_FK
+        bigint item_id PK_FK
+        numeric base_quantity "NUMERIC(10,3)"
+        varchar unit "nullable, e.g. g"
+        bigint target_store_id FK "nullable, custom routing"
+    }
+
+    USER_CART_ITEM {
+        bigint id PK "surrogate key, see ADR-001"
+        bigint user_id FK
+        bigint item_id FK
+        bigint store_id FK
+        bigint source_recipe_id FK "nullable = manual Others bucket"
+        numeric quantity "NUMERIC(10,3)"
+        numeric override_pantry_qty "NUMERIC(10,3), default 0"
+        varchar override_reason "nullable"
+        boolean is_checked_checkout "default false"
+    }
+
+    PURCHASE_HISTORY {
+        bigint id PK
+        bigint user_id FK
+        bigint store_id FK
+        numeric total_receipt_spent "NUMERIC(10,2)"
+        timestamp purchase_date
+        jsonb item_manifest_json "see manifest shape below"
+    }
+      </pre>
+    </div>
+
+    <h2>Table-by-table notes</h2>
+
+    <h3><code>users</code></h3>
+    <p>Single-tenant today. <code>current_mode</code> is a persisted <code>HOME</code>/<code>AWAY</code> toggle read/written by the Cart screen (<code>GET</code>/<code>PATCH /api/users/{userId}/mode</code>).</p>
+
+    <h3><code>items</code></h3>
+    <p>The master catalog. <code>category</code> (e.g. "Vegetables", "Meat", "Toiletries") drives the Insights tab's category-breakdown pie chart.</p>
+
+    <h3><code>stores</code></h3>
+    <p>Physical stores (Puregold, S&amp;R in seed data).</p>
+
+    <h3><code>store_prices</code></h3>
+    <p>Composite key <code>(item_id, store_id)</code> — the same item can have a different price per store. Written to by manual price entry, the receipt scanner's confirm step, and read by cart consolidation, recipe ingredient store-routing, and reconciliation's expected-total calculation.</p>
+
+    <h3><code>recipes</code> / <code>recipe_ingredients</code></h3>
+    <p><code>recipe_ingredients</code> uses a <strong>composite primary key</strong> <code>(recipe_id, item_id)</code> — a recipe can't list the same item twice. <code>target_store_id</code> is nullable: when set, that ingredient always routes to the specified store; when null, <code>RecipeService</code> falls back to whichever store currently has the cheapest known price for that item.</p>
+
+    <h3><code>user_cart_item</code></h3>
+    <p>The active cart. Each row represents one (item, store, source) line — <code>source_recipe_id</code> is nullable, and <code>NULL</code> specifically means "manually added, belongs to the Others bucket" rather than any particular recipe. See <a href="architecture-decisions.html">ADR-001</a> for why this table uses a surrogate <code>id</code> primary key instead of the fully-composite key its business logic implies.</p>
+    <p><code>override_pantry_qty</code> / <code>override_reason</code> back Feature 5's Home Mode pantry-stock stepper; <code>is_checked_checkout</code> backs Feature 5's Away Mode checkbox and Feature 6's per-store "Done Checkout" reconciliation.</p>
+
+    <h3><code>purchase_history</code></h3>
+    <p><strong>Receipt-level</strong>, not line-item-level: one row per checkout, with <code>item_manifest_json</code> holding a compressed snapshot of what was purchased. This is a deliberate tradeoff — see <a href="architecture-decisions.html">ADR-002</a>.</p>
+    <p>Manifest shape (a JSON array):</p>
+    <pre><code>[
+  { "itemId": 6, "itemName": "Napkin", "category": "Toiletries", "quantity": 2, "pricePerUnit": 25.00 }
+]</code></pre>
+
+    <h2>Known schema-modeling tradeoffs</h2>
+    <p>Documented in more detail in the <a href="architecture-decisions.html">Decision Records</a>, but worth flagging here since they directly affect how the ER diagram should be read:</p>
+    <ol>
+      <li><code>user_cart_item</code>'s <em>intended</em> business key (per the original product spec) was the composite <code>(user_id, item_id, store_id, source_recipe_id)</code> — but Postgres requires every <code>PRIMARY KEY</code> column to be <code>NOT NULL</code>, and <code>source_recipe_id</code> is nullable by design. The actual implementation uses a surrogate <code>id</code> PK plus a regular unique index on the same four columns (Postgres treats multiple <code>NULL</code>s as distinct in a unique index, unlike a primary key).</li>
+      <li><code>purchase_history</code>'s item-level detail lives inside a JSON blob rather than a normalized child table, which trades query-ability (e.g. "sum quantity purchased of item X across all receipts" requires JSON parsing, not a <code>GROUP BY</code>) for a simpler write path at checkout time.</li>
+    </ol>
+
+    <div class="footer-nav">
+      <a href="c4-diagrams.html">← C4 Diagrams</a>
+      <a href="architecture-decisions.html">Decision Records →</a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#EFF5F4',
+      primaryBorderColor: '#2E6F6E',
+      primaryTextColor: '#1C2321',
+      lineColor: '#5C635F',
+      secondaryColor: '#F1EFE8',
+      tertiaryColor: '#FAFAF7',
+      fontFamily: 'IBM Plex Sans, sans-serif'
+    }
+  });
+</script>
+</body>
+</html>

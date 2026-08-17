@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Reference — Cartculate</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">CARTCULATE</div>
+    <div class="sidebar-tagline">Architecture &amp; Product Docs</div>
+    <nav>
+      <a href="index.html">Overview</a>
+
+      <div class="sidebar-group-label">Product</div>
+      <a href="prd.html">Requirements Document</a>
+
+      <div class="sidebar-group-label">Architecture</div>
+      <a href="c4-diagrams.html">C4 Diagrams</a>
+      <a href="data-model.html">Data Model</a>
+      <a href="architecture-decisions.html">Decision Records</a>
+      <a href="api-reference.html" class="active">API Reference</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1>REST API Reference</h1>
+    <p class="page-subtitle">Base URL: <code>http://localhost:8888</code> — keep <code>src/api/config.ts</code> in sync if this changes.</p>
+
+    <div class="callout">
+      <div class="callout-title">No auth yet</div>
+      <p><code>{userId}</code> and other path parameters are currently plain numeric IDs, with no auth token required. See the PRD's non-functional notes for this gap.</p>
+    </div>
+
+    <h2>CartController — <code>/api/users/{userId}/cart</code></h2>
+    <table>
+      <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+      <tr><td><code>GET</code></td><td><code>/cart</code></td><td>Raw cart rows (frontend consolidates via <code>cartLogic.consolidateCart</code>)</td></tr>
+      <tr><td><code>PATCH</code></td><td><code>/cart/adjust</code></td><td>+1/-1 tap. Body: <code>{ itemId, storeId, delta }</code></td></tr>
+      <tr><td><code>PATCH</code></td><td><code>/cart/items/{cartItemId}/pantry-override</code></td><td>Set "already have" quantity. Body: <code>{ overridePantryQty, overrideReason }</code></td></tr>
+      <tr><td><code>PATCH</code></td><td><code>/cart/items/{cartItemId}/checkout-status</code></td><td>Toggle Away Mode checkbox. Body: <code>{ checked }</code></td></tr>
+      <tr><td><code>POST</code></td><td><code>/cart/master-reset</code></td><td>Clears every checkbox for the user, no body</td></tr>
+      <tr><td><code>POST</code></td><td><code>/cart/complete-checkout</code></td><td>Zeroes quantity + unchecks every checked row for one store. Body: <code>{ storeId }</code></td></tr>
+    </table>
+
+    <h2>RecipeController — <code>/api/users/{userId}/recipes</code></h2>
+    <table>
+      <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+      <tr><td><code>GET</code></td><td><code>/recipes</code></td><td>All saved recipes, base (×1) quantities</td></tr>
+      <tr><td><code>POST</code></td><td><code>/recipes</code></td><td>Create a recipe. Body: <code>{ name, ingredients: [{ itemId, baseQuantity, unit, targetStoreId? }] }</code> <span class="status status-planned">○ not yet called by the frontend UI</span></td></tr>
+    </table>
+
+    <h2>PurchaseHistoryController — <code>/api/users/{userId}/purchases</code></h2>
+    <table>
+      <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+      <tr><td><code>GET</code></td><td><code>/purchases</code></td><td>Receipt-level history, feeds every Insights chart</td></tr>
+      <tr><td><code>POST</code></td><td><code>/purchases</code></td><td>Archive one receipt. Body: <code>{ storeId, totalReceiptSpent, purchaseDate?, items: [{ itemId, itemName, category, quantity, pricePerUnit }] }</code></td></tr>
+    </table>
+
+    <h2>StorePriceController — <code>/api/stores/{storeId}/prices</code></h2>
+    <table>
+      <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+      <tr><td><code>GET</code></td><td><code>/prices</code></td><td>All known item prices at this store</td></tr>
+      <tr><td><code>PUT</code></td><td><code>/prices</code></td><td>Bulk upsert. Body: <code>{ updates: [{ itemId, priceAmount }] }</code> — called by the receipt scanner's confirm step</td></tr>
+    </table>
+
+    <h2>UserController — <code>/api/users/{userId}</code></h2>
+    <table>
+      <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+      <tr><td><code>GET</code></td><td>(root)</td><td>User profile, including persisted <code>currentMode</code></td></tr>
+      <tr><td><code>PATCH</code></td><td><code>/mode</code></td><td>Update Home/Away mode. Body: <code>{ mode: "HOME" | "AWAY" }</code></td></tr>
+    </table>
+
+    <h2>Not yet implemented</h2>
+    <p><span class="status status-planned">○ Planned</span> <code>POST /api/receipts/scan</code> — the OCR + LLM receipt-matching endpoint from Feature 4 does not exist on the backend yet. The frontend's <code>ReceiptScannerScreen</code> currently calls a local mock function that returns a hardcoded result after a simulated delay. Everything <em>downstream</em> of the scan (the review UI, manual match correction, and the "Confirm" action's calls to <code>PUT /prices</code> and <code>POST /purchases</code>) is fully real.</p>
+
+    <div class="footer-nav">
+      <a href="architecture-decisions.html">← Decision Records</a>
+      <span></span>
+    </div>
+  </main>
+</div>
+</body>
+</html>
