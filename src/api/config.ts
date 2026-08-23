@@ -16,8 +16,18 @@ export const API_BASE_URL = Platform.select({
   default: 'http://localhost:8888',
 });
 
-// TODO: replace with the real logged-in user's ID once auth exists.
-export const CURRENT_USER_ID = 1;
+// Was a hardcoded literal before login existed (see the old TODO here).
+// Now set by App.tsx after a successful login/session-restore, via
+// setCurrentUserId() below. Every other file in the app still just does
+// `import { CURRENT_USER_ID } from '../api/config'` unchanged - named ES
+// module imports are live bindings, so they automatically see the updated
+// value once setCurrentUserId() runs, with no per-file changes needed.
+export let CURRENT_USER_ID: number = 0;
+
+/** Called once after login succeeds or a saved session is restored on app boot. */
+export function setCurrentUserId(userId: number): void {
+  CURRENT_USER_ID = userId;
+}
 
 // ─── TESTING ONLY ────────────────────────────────────────────────────────
 // When true, every API call falls back to hardcoded mock data if (and only

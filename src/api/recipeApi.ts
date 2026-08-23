@@ -93,7 +93,7 @@ export async function createRecipe(userId: number, input: CreateRecipeInput): Pr
     () => ({
       id: `mock-${Date.now()}`,
       name: input.name,
-      currentMultiplier: 0,
+      currentMultiplier: 1,
       ingredients: input.ingredients.map((ing) => ({
         itemId: ing.itemId,
         itemName: ing.itemName,

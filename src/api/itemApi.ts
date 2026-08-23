@@ -1,6 +1,6 @@
 import { apiRequest, withMockFallback } from './httpClient';
 import { Item } from '../types';
-import { dbGetItems, dbCreateItem, dbUpdateItem } from '../data/mockDb';
+import { dbGetItems, dbCreateItem, dbUpdateItem, dbUpdateIncludeInCart, dbDeleteItem } from '../data/mockDb';
 
 interface ItemResponse {
   id: string;
@@ -8,6 +8,7 @@ interface ItemResponse {
   category: string;
   unit: string | null;
   isIngredient: boolean;
+  includeInCart: boolean;
   defaultStoreId: string | null;
 }
 
@@ -68,5 +69,45 @@ export async function updateItem(
         body: JSON.stringify({ name, category, unit, isIngredient, defaultStoreId }),
       }),
     () => dbUpdateItem(itemId, name, category, unit, isIngredient, defaultStoreId)
+  );
+}
+
+/**
+ * PATCH /api/items/{itemId}/include-in-cart - the Price Catalog's per-item
+ * checkbox. Deliberately a separate call from updateItem() above rather
+ * than folding it into the edit form's save: this needs to fire instantly
+ * on a checkbox tap without opening the full edit modal, and keeping it
+ * separate also avoids ProductModal's save payload (which doesn't know
+ * about this field) accidentally resetting it.
+ */
+export async function updateItemIncludeInCart(itemId: string, includeInCart: boolean): Promise<Item> {
+  return withMockFallback(
+    () =>
+      apiRequest<ItemResponse>(`/api/items/${itemId}/include-in-cart`, {
+        method: 'PATCH',
+        body: JSON.stringify({ includeInCart }),
+      }),
+    () => dbUpdateIncludeInCart(itemId, includeInCart)
+  );
+}
+
+/**
+ * DELETE /api/items/{itemId} - removes a product entirely, via the Price
+ * Catalog's delete action. The backend also removes its prices, cart
+ * rows, and recipe ingredient lines - see ItemService.deleteItem's
+ * javadoc for why a plain delete isn't safe otherwise.
+ */
+export async function deleteItem(itemId: string): Promise<void> {
+  return withMockFallback(
+    () =>
+      apiRequest<void>(
+        `/api/items/${itemId}`,
+        { method: 'DELETE' },
+        /* expectJson */ false
+      ),
+    () => {
+      dbDeleteItem(itemId);
+      return undefined;
+    }
   );
 }

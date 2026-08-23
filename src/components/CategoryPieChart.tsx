@@ -1,42 +1,29 @@
 import React from 'react';
-import { Text, Dimensions, StyleSheet } from 'react-native';
-import { PieChart } from 'react-native-chart-kit';
+import { Text, StyleSheet } from 'react-native';
 import { CategorySpending } from '../types';
 import { neumo, neumoText, NeumoRaised } from '../utils/neumorphic';
+import { formatCurrency } from '../utils/inputSanitization';
+import NeumoDonutChart from './NeumoDonutChart';
 
 interface CategoryPieChartProps {
   breakdown: CategorySpending[];
 }
 
-const screenWidth = Dimensions.get('window').width;
-
 const SLICE_COLORS = ['#2FAF7E', '#F2994A', '#C0335A', '#BB6BD9', '#F2C94C'];
 
-/** VISUAL: card is now a full-width raised surface - see MonthlySpendingChart.tsx's comment on why the chart's own rendering is unchanged. Logic unchanged. */
+/** VISUAL: now renders as a NeumoDonutChart (recessed ring, embossed segments - see that file's header comment for why a flat pie doesn't read as neumorphic) instead of chart-kit's flat <PieChart>. Logic/data shaping unchanged. */
 export default function CategoryPieChart({ breakdown }: CategoryPieChartProps) {
-  const chartData = breakdown.map((entry, idx) => ({
-    name: `${entry.category} ${entry.percentage}%`,
-    population: entry.amountSpent,
+  const slices = breakdown.map((entry, idx) => ({
+    key: entry.category,
+    label: entry.category,
+    value: entry.amountSpent,
     color: SLICE_COLORS[idx % SLICE_COLORS.length],
-    legendFontColor: neumo.textSecondary,
-    legendFontSize: 12,
   }));
 
   return (
     <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
       <Text style={styles.title}>Spending by category</Text>
-      <PieChart
-        data={chartData}
-        width={screenWidth - 76}
-        height={140}
-        chartConfig={{
-          color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-        }}
-        accessor="population"
-        backgroundColor="transparent"
-        paddingLeft="8"
-        hasLegend
-      />
+      <NeumoDonutChart slices={slices} formatValue={(v) => `₱${formatCurrency(v)}`} />
     </NeumoRaised>
   );
 }

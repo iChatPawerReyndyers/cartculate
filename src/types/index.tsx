@@ -11,6 +11,8 @@ export interface Item {
   unit: string | null;
   /** True if this item can be picked as a recipe ingredient - keeps the Recipe modal's picker from being cluttered with non-food items. */
   isIngredient: boolean;
+  /** True if this item should appear at all in the Cart tab - the Price Catalog's per-item checkbox. Unchecked items stay in the catalog/pricing but are hidden from Cart. */
+  includeInCart: boolean;
   /**
    * Explicit store this item auto-routes to wherever "Default (auto)"
    * routing happens (recipe ingredients left un-overridden, etc), instead
@@ -32,10 +34,18 @@ export interface Item {
  * - changing or clearing it never retroactively touches an existing item,
  * and never overrides an item's own explicit default once that's set.
  */
+/**
+ * Per-category settings applied when creating a NEW product in that
+ * category (via ProductModal's Add flow) - never retroactively changes
+ * an existing item. storeId/storeName are null if no default store is
+ * set for this category (it may still appear here with just
+ * defaultIsIngredient set).
+ */
 export interface CategoryDefaultStore {
   category: string;
-  storeId: string;
-  storeName: string;
+  storeId: string | null;
+  storeName: string | null;
+  defaultIsIngredient: boolean;
 }
 
 /** Which mode the Cart screen is in: HOME = editing pantry overrides, AWAY = mid grocery-trip checkout. */

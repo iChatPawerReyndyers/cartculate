@@ -3,9 +3,20 @@ import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'rea
 import { scaleIngredients, calculatePerBatchCost } from '../utils/recipeLogic';
 import { formatQuantityWithUnit, formatCurrency } from '../utils/inputSanitization';
 import { Recipe } from '../types';
-import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
+import { neumo, neumoText, NeumoRaised, NeumoInset } from '../utils/neumorphic';
+import HorizontalWheelPicker from './HorizontalWheelPicker';
 
-const MULTIPLIER_STEP = 0.5;
+/**
+ * Quarter-step multiplier wheel, replacing the old -/+ stepper (see the
+ * removed handleDecrement/handleIncrement below). Fixed 0-5 range (21
+ * ticks at 0.25 apart) rather than the old stepper's unbounded +: a
+ * horizontal wheel needs a known range to lay out and center its ticks,
+ * unlike a plain increment button. 5x covers any realistic batch multiple
+ * (party-sized cooking etc.) - flag it if you actually need higher.
+ */
+const MULTIPLIER_STEP = 0.25;
+const MULTIPLIER_MIN = 0;
+const MULTIPLIER_MAX = 5;
 
 interface RecipeCardProps {
   recipe: Recipe;
@@ -44,18 +55,9 @@ export default function RecipeCard({
 
   const totalCost = perBatchCost * recipe.currentMultiplier;
 
-  const handleDecrement = () => {
-    const next = Math.max(0, recipe.currentMultiplier - MULTIPLIER_STEP);
-    onMultiplierChange(recipe, next);
-  };
-
-  const handleIncrement = () => {
-    onMultiplierChange(recipe, recipe.currentMultiplier + MULTIPLIER_STEP);
-  };
-
   const formattedMultiplier = Number.isInteger(recipe.currentMultiplier)
     ? recipe.currentMultiplier.toString()
-    : recipe.currentMultiplier.toFixed(1);
+    : recipe.currentMultiplier.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 
   return (
     <NeumoRaised style={styles.cardInner} distance={4} fullWidth>
@@ -97,43 +99,33 @@ export default function RecipeCard({
               )}
             </View>
             <Text style={styles.ingredientQty}>
-              {formatQuantityWithUnit(ing.scaledQuantity, ing.unit)}
+              {formatQuantityWithUnit(ing.baseQuantity, ing.unit)}
+              <Text style={styles.ingredientQtyArrow}> → </Text>
+              <Text style={styles.ingredientQtyScaled}>{formatQuantityWithUnit(ing.scaledQuantity, ing.unit)}</Text>
             </Text>
           </View>
         ))}
       </View>
 
       <NeumoInset borderRadius={12} style={styles.multiplierInset}>
-        <TouchableOpacity
-          onPress={handleDecrement}
-          disabled={isUpdatingMultiplier || recipe.currentMultiplier <= 0}
-        >
-          <NeumoRaised
-            borderRadius={9}
-            distance={2}
-            style={[
-              styles.multiplierStepInner,
-              recipe.currentMultiplier <= 0 && styles.multiplierStepDisabled,
-            ]}
-          >
-            <Text style={styles.multiplierStepButtonText}>-</Text>
-          </NeumoRaised>
-        </TouchableOpacity>
+        <Text style={styles.multiplierLabel}>Multiplier</Text>
         {isUpdatingMultiplier ? (
-          <ActivityIndicator size="small" color={neumo.accent} />
+          <ActivityIndicator size="small" color={neumo.accent} style={styles.multiplierSpinner} />
         ) : (
-          <Text style={styles.multiplierText}>Multiplier: ×{formattedMultiplier}</Text>
+          <HorizontalWheelPicker
+            value={recipe.currentMultiplier}
+            min={MULTIPLIER_MIN}
+            max={MULTIPLIER_MAX}
+            step={MULTIPLIER_STEP}
+            onChange={(next) => onMultiplierChange(recipe, next)}
+            formatLabel={(v) => `×${Number.isInteger(v) ? v : v.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}`}
+          />
         )}
-        <TouchableOpacity onPress={handleIncrement} disabled={isUpdatingMultiplier}>
-          <NeumoAccentRaised borderRadius={9} distance={2} style={styles.multiplierStepInner}>
-            <Text style={styles.multiplierStepButtonTextAccent}>+</Text>
-          </NeumoAccentRaised>
-        </TouchableOpacity>
       </NeumoInset>
       <Text style={styles.multiplierHint}>
         {recipe.currentMultiplier === 0
           ? '×0 = not in your cart right now'
-          : 'Adjusting this updates your cart automatically'}
+          : 'Swipe to scale this recipe - updates your cart automatically'}
       </Text>
     </NeumoRaised>
   );
@@ -227,36 +219,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: neumo.textSecondary,
   },
+  ingredientQtyArrow: {
+    fontSize: 11,
+    color: neumo.textMuted,
+  },
+  ingredientQtyScaled: {
+    ...neumoText.heading,
+    fontSize: 13,
+    color: neumo.accentDark,
+  },
   multiplierInset: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 14,
     paddingVertical: 8,
+    paddingHorizontal: 4,
   },
-  multiplierStepInner: {
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  multiplierStepDisabled: {
-    opacity: 0.4,
-  },
-  multiplierStepButtonText: {
-    ...neumoText.heading,
-    fontSize: 15,
-  },
-  multiplierStepButtonTextAccent: {
-    ...neumoText.heading,
-    fontSize: 15,
-    color: '#FFFFFF',
-  },
-  multiplierText: {
-    ...neumoText.heading,
-    fontSize: 14,
-    minWidth: 100,
+  multiplierLabel: {
+    ...neumoText.caption,
+    fontSize: 10,
+    color: neumo.textMuted,
     textAlign: 'center',
+    marginBottom: 2,
+  },
+  multiplierSpinner: {
+    height: 48,
   },
   multiplierHint: {
     ...neumoText.caption,

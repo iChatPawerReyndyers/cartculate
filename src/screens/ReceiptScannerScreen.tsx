@@ -18,7 +18,7 @@ import PriceCatalogView from '../components/PriceCatalogView';
 import { scanReceipt } from '../api/receiptScanApi';
 import { applyManualMatch, isReadyToConfirm, buildStorePriceUpdates, buildPurchaseHistoryFromReceipt } from '../utils/receiptLogic';
 import { createPurchase } from '../api/purchaseApi';
-import { updateStorePrices } from '../api/storePriceApi';
+import { updatePersonalStorePrices } from '../api/storePriceApi';
 import { CURRENT_USER_ID } from '../api/config';
 import { ApiError } from '../api/httpClient';
 import { ReceiptScanResult } from '../types';
@@ -82,9 +82,17 @@ export default function ReceiptScannerScreen() {
 
     try {
       const priceUpdates = buildStorePriceUpdates(scanResult);
-      await updateStorePrices(
+      // Feature: personal price overrides. A scanned receipt is
+      // inherently CURRENT_USER_ID's own purchase at their own suki/store
+      // visit - confirming it now sets their PERSONAL price for these
+      // items, not the shared baseline everyone else sees. Someone else
+      // scanning a receipt for the same item at the same nominal store
+      // can get a different price without either of them overwriting the
+      // other. See storePriceApi.ts's updatePersonalStorePrices.
+      await updatePersonalStorePrices(
         scanResult.storeId,
-        priceUpdates.map((u) => ({ itemId: u.itemId, priceAmount: u.priceAmount }))
+        priceUpdates.map((u) => ({ itemId: u.itemId, priceAmount: u.priceAmount })),
+        'SCAN'
       );
 
       const receiptPayload = buildPurchaseHistoryFromReceipt(scanResult);

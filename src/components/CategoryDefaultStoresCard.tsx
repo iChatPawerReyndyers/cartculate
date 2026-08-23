@@ -12,11 +12,15 @@ interface CategoryDefaultStoresCardProps {
   stores: Store[];
   categoryDefaultStores: CategoryDefaultStore[];
   onChange: (category: string, storeId: string | null) => void;
+  onIngredientDefaultChange: (category: string, defaultIsIngredient: boolean) => void;
 }
 
 /**
- * Feature: "Default store per category" (Price Catalog tab). See the
- * original doc comment below for the full feature rationale - unchanged.
+ * Feature: "Default store per category" (Price Catalog tab), now joined
+ * by a second per-category default - "new products in this category
+ * start as an Ingredient". Both live in the same manager sheet/row since
+ * they're both just "settings for this category" - see the doc comment
+ * on CategoryDefault.java (backend) for why they share one table too.
  *
  * VISUAL: summary card and every row now use the neumorphic system - the
  * summary card is a raised full-width surface, the "value chip" per
@@ -29,6 +33,7 @@ export default function CategoryDefaultStoresCard({
   stores,
   categoryDefaultStores,
   onChange,
+  onIngredientDefaultChange,
 }: CategoryDefaultStoresCardProps) {
   const insets = useSafeAreaInsets();
   const [managerOpen, setManagerOpen] = useState(false);
@@ -40,6 +45,9 @@ export default function CategoryDefaultStoresCard({
 
   const labelFor = (category: string) =>
     categoryDefaultStores.find((c) => c.category === category)?.storeName ?? NONE_LABEL;
+
+  const isIngredientDefaultFor = (category: string) =>
+    categoryDefaultStores.find((c) => c.category === category)?.defaultIsIngredient ?? false;
 
   const handleSelectStore = (storeId: string | null) => {
     if (pickerCategory) onChange(pickerCategory, storeId);
@@ -70,7 +78,7 @@ export default function CategoryDefaultStoresCard({
       <TouchableOpacity onPress={() => setManagerOpen(true)} activeOpacity={0.8}>
         <NeumoRaised borderRadius={14} distance={4} style={styles.cardInner} fullWidth>
           <View style={styles.cardTextWrap}>
-            <Text style={styles.title}>Default store by category</Text>
+            <Text style={styles.title}>Category defaults</Text>
             <Text style={styles.subtitle}>
               {configuredCount} of {categories.length} categories configured
             </Text>
@@ -88,14 +96,15 @@ export default function CategoryDefaultStoresCard({
         <View style={styles.overlay}>
           <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
             <View style={styles.sheetHeaderRow}>
-              <Text style={styles.sheetTitle}>Category default stores</Text>
+              <Text style={styles.sheetTitle}>Category defaults</Text>
               <TouchableOpacity onPress={() => setManagerOpen(false)}>
                 <Text style={styles.doneLink}>Done</Text>
               </TouchableOpacity>
             </View>
             <Text style={styles.sheetSubtitle}>
-              New products in a category start routed to its default store. Overriding a single
-              product is still done from that product's own edit form.
+              New products in a category start routed to its default store below. The toggle on
+              each row sets whether new products in that category start marked as an "Ingredient" -
+              overriding a single product is still done from that product's own edit form.
             </Text>
 
             <NeumoInset borderRadius={14} style={styles.listInset}>
@@ -103,19 +112,30 @@ export default function CategoryDefaultStoresCard({
                 {categories.map((category) => {
                   const label = labelFor(category);
                   const isSet = label !== NONE_LABEL;
+                  const ingredientDefault = isIngredientDefaultFor(category);
                   return (
                     <View key={category} style={styles.row}>
                       <Text style={styles.categoryText} numberOfLines={1}>
                         {category}
                       </Text>
-                      <TouchableOpacity onPress={() => setPickerCategory(category)} activeOpacity={0.7}>
-                        <View style={[styles.valueChip, isSet && styles.valueChipSet]}>
-                          <Text style={[styles.valueChipText, isSet && styles.valueChipTextSet]} numberOfLines={1}>
-                            {label}
-                          </Text>
-                          <Text style={styles.chevron}>▾</Text>
-                        </View>
-                      </TouchableOpacity>
+                      <View style={styles.rowControls}>
+                        <TouchableOpacity
+                          onPress={() => onIngredientDefaultChange(category, !ingredientDefault)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={[styles.miniToggleTrack, ingredientDefault && styles.miniToggleTrackOn]}>
+                            <View style={[styles.miniToggleThumb, ingredientDefault && styles.miniToggleThumbOn]} />
+                          </View>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setPickerCategory(category)} activeOpacity={0.7}>
+                          <View style={[styles.valueChip, isSet && styles.valueChipSet]}>
+                            <Text style={[styles.valueChipText, isSet && styles.valueChipTextSet]} numberOfLines={1}>
+                              {label}
+                            </Text>
+                            <Text style={styles.chevron}>▾</Text>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   );
                 })}
@@ -262,6 +282,35 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 8,
   },
+  rowControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  miniToggleTrack: {
+    width: 30,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: neumo.surfaceInset,
+    borderWidth: 1,
+    borderColor: 'rgba(166,176,195,0.4)',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  miniToggleTrackOn: {
+    backgroundColor: neumo.accent,
+    borderColor: neumo.accentDark,
+  },
+  miniToggleThumb: {
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: '#FFFFFF',
+    alignSelf: 'flex-start',
+  },
+  miniToggleThumbOn: {
+    alignSelf: 'flex-end',
+  },
   categoryText: {
     ...neumoText.body,
     fontSize: 13,
@@ -275,7 +324,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    maxWidth: 160,
+    maxWidth: 110,
     borderWidth: 1,
     borderColor: 'rgba(166,176,195,0.4)',
   },

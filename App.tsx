@@ -15,10 +15,13 @@ import RecipeScreen from './src/screens/RecipeScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
 import ReceiptScannerScreen from './src/screens/ReceiptScannerScreen';
 import GroceryHistoryScreen from './src/screens/GroceryHistoryScreen';
+import LoginScreen from './src/screens/LoginScreen';
 import { fetchCart, adjustCartItem, setPantryOverride, setCheckoutStatus, masterResetCheckout, completeCheckout } from './src/api/cartApi';
 import { createPurchase } from './src/api/purchaseApi';
-import { CURRENT_USER_ID } from './src/api/config';
+import { CURRENT_USER_ID, setCurrentUserId } from './src/api/config';
 import { ApiError } from './src/api/httpClient';
+import { AuthUser } from './src/api/authApi';
+import { loadSession, saveSession, clearSession, StoredSession } from './src/utils/session';
 import { adjustOthersQuantity } from './src/utils/cartLogic';
 import { CartRow, ManifestItem } from './src/types';
 
@@ -68,6 +71,40 @@ function AppContent() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // ─── Auth gating (Feature: username/password login) ──────────────────
+  // authChecked distinguishes "still reading AsyncStorage" from "checked,
+  // nobody's logged in" - without it, the login screen would flash briefly
+  // even for a user with a valid saved session, before it's had a chance
+  // to load and redirect past it.
+  const [authUser, setAuthUser] = useState<StoredSession | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const session = await loadSession();
+      if (session) {
+        setCurrentUserId(Number(session.userId));
+        setAuthUser(session);
+      }
+      setAuthChecked(true);
+    })();
+  }, []);
+
+  const handleAuthenticated = useCallback(async (user: AuthUser) => {
+    setCurrentUserId(Number(user.id));
+    await saveSession(user);
+    setAuthUser({ userId: user.id, name: user.name, username: user.username });
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    await clearSession();
+    setAuthUser(null);
+    // Reset cart state so the next login doesn't briefly show the
+    // previous user's data before loadCart() re-runs for the new session.
+    setCartRows([]);
+    setLoading(true);
+  }, []);
+
   const loadCart = useCallback(async () => {
     try {
       const rows = await fetchCart(CURRENT_USER_ID);
@@ -81,9 +118,12 @@ function AppContent() {
     }
   }, []);
 
+  // Gated on authUser, not just mount - CURRENT_USER_ID isn't valid (and
+  // there's nothing to load) until either a saved session was restored or
+  // a fresh login just happened.
   useEffect(() => {
-    loadCart();
-  }, [loadCart]);
+    if (authUser) loadCart();
+  }, [authUser, loadCart]);
 
   const handleIncrement = useCallback(
     async (itemId: string, storeId: string) => {
@@ -289,6 +329,22 @@ function AppContent() {
     [loadCart]
   );
 
+  // authChecked gate comes first: don't show the login screen (or the
+  // "loading cart" spinner, which would be wrong pre-login anyway) until
+  // the AsyncStorage read has actually resolved.
+  if (!authChecked) {
+    return (
+      <View style={[styles.centerContainer, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+        <ActivityIndicator size="large" color="#2FAF7E" />
+      </View>
+    );
+  }
+
+  if (!authUser) {
+    return <LoginScreen onAuthenticated={handleAuthenticated} />;
+  }
+
   // Loading/error states are their own full screens (rendered before the
   // tab bar even exists), so they need their own top+bottom inset padding
   // rather than inheriting it from the main layout below.
@@ -345,7 +401,9 @@ function AppContent() {
         )}
         {activeTab === TABS.INSIGHTS && <InsightsScreen />}
         {activeTab === TABS.SCAN && <ReceiptScannerScreen />}
-        {activeTab === TABS.HISTORY && <GroceryHistoryScreen />}
+        {activeTab === TABS.HISTORY && (
+          <GroceryHistoryScreen userName={authUser.name} onLogout={handleLogout} />
+        )}
       </View>
 
       <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, MIN_TAB_BAR_BOTTOM_PADDING) }]}>

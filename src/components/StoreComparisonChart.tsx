@@ -1,44 +1,22 @@
 import React from 'react';
-import { Text, Dimensions, StyleSheet } from 'react-native';
-import { BarChart } from 'react-native-chart-kit';
+import { Text, StyleSheet } from 'react-native';
 import { StoreSpendingTotal } from '../types';
 import { neumo, neumoText, NeumoRaised } from '../utils/neumorphic';
+import { formatCurrency } from '../utils/inputSanitization';
+import NeumoBarChart from './NeumoBarChart';
 
 interface StoreComparisonChartProps {
   totals: StoreSpendingTotal[];
 }
 
-const screenWidth = Dimensions.get('window').width;
-
-/** VISUAL: card is now a full-width raised surface with a transparent chart background - see MonthlySpendingChart.tsx's comment on why the chart's own rendering is unchanged. Logic unchanged. */
+/** VISUAL: bars now render via NeumoBarChart (neumorphic "pillar" bars, react-native-svg-free) instead of chart-kit's flat <BarChart> - see NeumoBarChart.tsx. Logic/data shaping unchanged. */
 export default function StoreComparisonChart({ totals }: StoreComparisonChartProps) {
-  const chartData = {
-    labels: totals.map((t) => t.storeName),
-    datasets: [{ data: totals.map((t) => t.totalSpent) }],
-  };
+  const bars = totals.map((t) => ({ key: t.storeId, label: t.storeName, value: t.totalSpent }));
 
   return (
     <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
       <Text style={styles.title}>Store spending comparison</Text>
-      <BarChart
-        data={chartData}
-        width={screenWidth - 76}
-        height={160}
-        yAxisLabel="₱"
-        yAxisSuffix=""
-        fromZero
-        showValuesOnTopOfBars
-        chartConfig={{
-          backgroundColor: 'transparent',
-          backgroundGradientFrom: neumo.surfaceRaised,
-          backgroundGradientTo: neumo.surfaceRaised,
-          decimalPlaces: 0,
-          color: (opacity = 1) => `rgba(47, 175, 126, ${opacity})`,
-          labelColor: (opacity = 1) => `rgba(117, 117, 117, ${opacity})`,
-          barPercentage: 0.6,
-        }}
-        style={styles.chart}
-      />
+      <NeumoBarChart data={bars} formatValue={(v) => `₱${formatCurrency(v)}`} />
     </NeumoRaised>
   );
 }
@@ -53,9 +31,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: neumo.textSecondary,
     marginBottom: 8,
-  },
-  chart: {
-    borderRadius: 8,
-    marginLeft: -16,
   },
 });

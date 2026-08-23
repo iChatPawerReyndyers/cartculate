@@ -7,15 +7,15 @@
 import { Item } from '../types';
 
 export const mockItems: Item[] = [
-  { id: '1', name: 'Carrots', category: 'Vegetables', unit: 'kg', isIngredient: true, defaultStoreId: null },
-  { id: '2', name: 'Bell pepper', category: 'Vegetables', unit: null, isIngredient: true, defaultStoreId: null },
-  { id: '3', name: 'Potato', category: 'Vegetables', unit: 'kg', isIngredient: true, defaultStoreId: null },
-  { id: '4', name: 'Beef cubes', category: 'Meat', unit: 'kg', isIngredient: true, defaultStoreId: null },
-  { id: '5', name: 'Ground pork', category: 'Meat', unit: 'kg', isIngredient: true, defaultStoreId: null },
-  { id: '6', name: 'Napkin', category: 'Toiletries', unit: 'pack', isIngredient: false, defaultStoreId: null },
-  { id: '7', name: 'Toothpaste', category: 'Toiletries', unit: null, isIngredient: false, defaultStoreId: null },
-  { id: '8', name: 'Coca-Cola Light 1.5L', category: 'Beverages', unit: null, isIngredient: false, defaultStoreId: null },
-  { id: '9', name: 'Pampers Baby Wipes', category: 'Toiletries', unit: 'pack', isIngredient: false, defaultStoreId: null },
-  { id: '10', name: "Johnson's Cottonbuds 200s", category: 'Toiletries', unit: 'pack', isIngredient: false, defaultStoreId: null },
-  { id: '11', name: "Johnson's Baby Powder 200g", category: 'Toiletries', unit: null, isIngredient: false, defaultStoreId: null },
+  { id: '1', name: 'Carrots', category: 'Vegetables', unit: 'kg', isIngredient: true, defaultStoreId: null, includeInCart: true },
+  { id: '2', name: 'Bell pepper', category: 'Vegetables', unit: null, isIngredient: true, defaultStoreId: null, includeInCart: true },
+  { id: '3', name: 'Potato', category: 'Vegetables', unit: 'kg', isIngredient: true, defaultStoreId: null, includeInCart: true },
+  { id: '4', name: 'Beef cubes', category: 'Meat', unit: 'kg', isIngredient: true, defaultStoreId: null, includeInCart: true },
+  { id: '5', name: 'Ground pork', category: 'Meat', unit: 'kg', isIngredient: true, defaultStoreId: null, includeInCart: true },
+  { id: '6', name: 'Napkin', category: 'Toiletries', unit: 'pack', isIngredient: false, defaultStoreId: null, includeInCart: true },
+  { id: '7', name: 'Toothpaste', category: 'Toiletries', unit: null, isIngredient: false, defaultStoreId: null, includeInCart: true },
+  { id: '8', name: 'Coca-Cola Light 1.5L', category: 'Beverages', unit: null, isIngredient: false, defaultStoreId: null, includeInCart: true },
+  { id: '9', name: 'Pampers Baby Wipes', category: 'Toiletries', unit: 'pack', isIngredient: false, defaultStoreId: null, includeInCart: true },
+  { id: '10', name: "Johnson's Cottonbuds 200s", category: 'Toiletries', unit: 'pack', isIngredient: false, defaultStoreId: null, includeInCart: true },
+  { id: '11', name: "Johnson's Baby Powder 200g", category: 'Toiletries', unit: null, isIngredient: false, defaultStoreId: null, includeInCart: true },
 ];

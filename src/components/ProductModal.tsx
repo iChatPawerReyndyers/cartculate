@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet,
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Store, createStore } from '../api/storeApi';
 import { sanitizeDecimalInput, isValidPositiveNumber } from '../utils/inputSanitization';
-import { UNIT_OPTIONS } from '../utils/units';
+import { UNIT_OPTIONS, UNIT_MAX_LENGTH } from '../utils/units';
 import { CategoryDefaultStore } from '../types';
 import SelectField from './SelectField';
 import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
@@ -15,6 +15,8 @@ const NO_STORE_OVERRIDE_VALUE = '__no_override__';
 export interface ExistingProductPrice {
   storeId: string;
   priceAmount: number;
+  /** Feature: personal price overrides. True if this price is CURRENT_USER_ID's own override rather than the shared baseline. */
+  isPersonalOverride?: boolean;
 }
 
 export interface ProductSaveResult {
@@ -24,8 +26,17 @@ export interface ProductSaveResult {
   unit: string;
   isIngredient: boolean;
   defaultStoreId: string | null | undefined;
-  priceRows: { storeId: string; price: number }[];
+  priceRows: { storeId: string; price: number; isPersonal: boolean }[];
+  /** Shared-price rows removed entirely (never touches anyone's personal override for that store). */
   removedStoreIds: string[];
+  /**
+   * Stores where the price used to be CURRENT_USER_ID's personal
+   * override but no longer is - either the row was deleted, or its
+   * "This is different for me" toggle was switched back off. Always
+   * clears the override (reverting to the shared baseline) for these;
+   * harmless no-op if nothing was there.
+   */
+  clearedPersonalStoreIds: string[];
 }
 
 interface ProductModalProps {
@@ -51,6 +62,10 @@ interface PriceRow {
   storeId: string;
   newStoreText: string;
   priceText: string;
+  /** Current toggle state - "This is different for me" (personal override) vs the shared baseline. */
+  isPersonal: boolean;
+  /** What isPersonal was when this row was first loaded from existingPrices - undefined for a brand-new row. Used on save to detect "switched off" so the override gets cleared. */
+  originalIsPersonal: boolean | undefined;
 }
 
 /**
@@ -59,9 +74,10 @@ interface PriceRow {
  * price inputs are inset wells; the ingredient toggle keeps its own
  * pill-track look (functional switch, not a text field); each price row
  * is a full-width raised card; Save is a raised accent button and Cancel
- * is inset. SelectField (category/unit/default-store pickers) already
- * carries the neumorphic look internally - no changes needed at the call
- * sites here. No logic changed in this pass.
+ * is inset. SelectField (category/default-store pickers) already
+ * carries the neumorphic look internally. Unit is a plain inset text
+ * field, not a SelectField, since it's now free text (5-char cap)
+ * rather than a fixed picker list - see units.ts.
  */
 export default function ProductModal({
   visible,
@@ -89,15 +105,26 @@ export default function ProductModal({
   const [defaultStorePickerValue, setDefaultStorePickerValue] = useState(NO_STORE_OVERRIDE_VALUE);
   const [priceRows, setPriceRows] = useState<PriceRow[]>([]);
   const [originalStoreIds, setOriginalStoreIds] = useState<string[]>([]);
+  const [originalPersonalStoreIds, setOriginalPersonalStoreIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
     setName(existingName ?? '');
-    setCategoryPickerValue(existingCategory ?? categories[0] ?? '');
+    const initialCategory = existingCategory ?? categories[0] ?? '';
+    setCategoryPickerValue(initialCategory);
     setCustomCategoryText('');
     setUnit(existingUnit ?? UNIT_OPTIONS[0]);
-    setIsIngredient(existingIsIngredient ?? false);
+    // For a brand-new product (existingIsIngredient undefined), prefill
+    // from the initially-selected category's default instead of always
+    // starting false - see the SelectField onChange above for the
+    // matching prefill when the user then changes category.
+    if (existingIsIngredient !== undefined) {
+      setIsIngredient(existingIsIngredient);
+    } else {
+      const entry = categoryDefaultStores.find((c) => c.category === initialCategory);
+      setIsIngredient(entry?.defaultIsIngredient ?? false);
+    }
     setDefaultStorePickerValue(existingDefaultStoreId ?? NO_STORE_OVERRIDE_VALUE);
 
     if (existingPrices && existingPrices.length > 0) {
@@ -107,14 +134,29 @@ export default function ProductModal({
           storeId: p.storeId,
           newStoreText: '',
           priceText: p.priceAmount.toFixed(2),
+          isPersonal: p.isPersonalOverride ?? false,
+          originalIsPersonal: p.isPersonalOverride ?? false,
         }))
       );
       setOriginalStoreIds(existingPrices.map((p) => p.storeId));
+      setOriginalPersonalStoreIds(existingPrices.filter((p) => p.isPersonalOverride).map((p) => p.storeId));
     } else {
       setPriceRows(
-        stores.length > 0 ? [{ key: `${Date.now()}`, storeId: stores[0].id, newStoreText: '', priceText: '' }] : []
+        stores.length > 0
+          ? [
+              {
+                key: `${Date.now()}`,
+                storeId: stores[0].id,
+                newStoreText: '',
+                priceText: '',
+                isPersonal: false,
+                originalIsPersonal: undefined,
+              },
+            ]
+          : []
       );
       setOriginalStoreIds([]);
+      setOriginalPersonalStoreIds([]);
     }
   }, [
     visible,
@@ -126,6 +168,7 @@ export default function ProductModal({
     existingPrices,
     categories,
     stores,
+    categoryDefaultStores,
   ]);
 
   const handleAddPriceRow = () => {
@@ -136,6 +179,8 @@ export default function ProductModal({
         storeId: stores.length > 0 ? stores[0].id : ADD_NEW_STORE_VALUE,
         newStoreText: '',
         priceText: '',
+        isPersonal: false,
+        originalIsPersonal: undefined,
       },
     ]);
   };
@@ -161,8 +206,6 @@ export default function ProductModal({
     { label: '+ Add new category...', value: ADD_NEW_CATEGORY_VALUE },
   ];
 
-  const unitOptions = UNIT_OPTIONS.map((opt) => ({ label: opt, value: opt }));
-
   const priceAtStore = (storeId: string): number | null => {
     const row = priceRows.find((r) => r.storeId === storeId && r.priceText);
     if (!row) return null;
@@ -172,7 +215,7 @@ export default function ProductModal({
 
   const defaultStoreOptions = [
     {
-      label: categoryDefaultEntry
+      label: categoryDefaultEntry?.storeName
         ? `Use category default (${categoryDefaultEntry.storeName})`
         : 'Use category default (none set)',
       value: NO_STORE_OVERRIDE_VALUE,
@@ -208,8 +251,8 @@ export default function ProductModal({
       );
       return;
     }
-    if (!unit) {
-      Alert.alert('Unit required', 'Pick a unit for this product.');
+    if (!unit.trim()) {
+      Alert.alert('Unit required', 'Type a unit for this product (e.g. kg, pc).');
       return;
     }
 
@@ -231,7 +274,7 @@ export default function ProductModal({
     setIsSaving(true);
     try {
       const resolvedStoreIdByNewName = new Map<string, string>();
-      const validRows: { storeId: string; price: number }[] = [];
+      const validRows: { storeId: string; price: number; isPersonal: boolean }[] = [];
 
       for (const row of rowsWithPrices) {
         let resolvedStoreId = row.storeId;
@@ -249,11 +292,23 @@ export default function ProductModal({
           }
         }
 
-        validRows.push({ storeId: resolvedStoreId, price: parseFloat(row.priceText) });
+        validRows.push({ storeId: resolvedStoreId, price: parseFloat(row.priceText), isPersonal: row.isPersonal });
       }
 
       const currentStoreIds = new Set(validRows.map((r) => r.storeId));
-      const removedStoreIds = originalStoreIds.filter((id) => !currentStoreIds.has(id));
+      const currentPersonalStoreIds = new Set(validRows.filter((r) => r.isPersonal).map((r) => r.storeId));
+      // A store id that was originally a personal override is excluded
+      // here even if its row got removed - removing a personal-price row
+      // should only clear that override (see clearedPersonalStoreIds
+      // below), never delete the shared baseline everyone else still sees.
+      const removedStoreIds = originalStoreIds.filter(
+        (id) => !currentStoreIds.has(id) && !originalPersonalStoreIds.includes(id)
+      );
+      // Any store that WAS a personal override but no longer is - either
+      // the row was removed entirely, or its toggle was switched back to
+      // shared - gets its override cleared so the user reverts to seeing
+      // the shared baseline (or nothing, if there's no baseline either).
+      const clearedPersonalStoreIds = originalPersonalStoreIds.filter((id) => !currentPersonalStoreIds.has(id));
 
       const chosenDefaultStoreId: string | null | undefined =
         defaultStorePickerValue === NO_STORE_OVERRIDE_VALUE
@@ -271,6 +326,7 @@ export default function ProductModal({
         defaultStoreId: chosenDefaultStoreId,
         priceRows: validRows,
         removedStoreIds,
+        clearedPersonalStoreIds,
       });
     } catch (err) {
       Alert.alert('Could not save product', 'Please check your connection and try again.');
@@ -283,7 +339,7 @@ export default function ProductModal({
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false}>
             <Text style={styles.title}>{mode === 'add' ? 'Add product' : 'Edit product'}</Text>
 
             <Text style={styles.label}>Name</Text>
@@ -305,6 +361,15 @@ export default function ProductModal({
               onChange={(value) => {
                 setCategoryPickerValue(value);
                 if (value !== ADD_NEW_CATEGORY_VALUE) setCustomCategoryText('');
+                // Prefill the Ingredient toggle from this category's default -
+                // only for NEW products (mode==='add'), never for an existing
+                // one being edited, so changing an item's category never
+                // silently flips a toggle the user already set explicitly for
+                // that specific product. See CategoryDefaultStoresCard.tsx.
+                if (mode === 'add' && value !== ADD_NEW_CATEGORY_VALUE) {
+                  const entry = categoryDefaultStores.find((c) => c.category === value);
+                  setIsIngredient(entry?.defaultIsIngredient ?? false);
+                }
               }}
             />
 
@@ -322,7 +387,17 @@ export default function ProductModal({
             )}
 
             <Text style={[styles.label, styles.fieldSpacingTop]}>Unit</Text>
-            <SelectField value={unit} options={unitOptions} sheetTitle="Unit" onChange={setUnit} />
+            <NeumoInset borderRadius={neumo.radiusSm} style={styles.unitInsetWrap}>
+              <TextInput
+                style={styles.unitInput}
+                value={unit}
+                onChangeText={(text) => setUnit(text.slice(0, UNIT_MAX_LENGTH))}
+                placeholder="kg, g, pc..."
+                placeholderTextColor={neumo.textMuted}
+                maxLength={UNIT_MAX_LENGTH}
+                autoCapitalize="none"
+              />
+            </NeumoInset>
 
             <TouchableOpacity
               style={styles.ingredientToggleRow}
@@ -389,6 +464,16 @@ export default function ProductModal({
                       />
                     </NeumoInset>
                   )}
+                  <TouchableOpacity
+                    style={styles.personalToggleRow}
+                    onPress={() => updatePriceRow(row.key, { isPersonal: !row.isPersonal })}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.miniToggleTrack, row.isPersonal && styles.miniToggleTrackOn]}>
+                      <View style={[styles.miniToggleThumb, row.isPersonal && styles.miniToggleThumbOn]} />
+                    </View>
+                    <Text style={styles.personalToggleLabel}>This is different for me (e.g. my suki's price)</Text>
+                  </TouchableOpacity>
                 </NeumoRaised>
               ))}
             </View>
@@ -436,6 +521,10 @@ const styles = StyleSheet.create({
     padding: 20,
     maxHeight: '88%',
   },
+  /** BUGFIX (attempt 2): flex:1 -> flexShrink:1, same reasoning as NewRecipeModal.tsx's formScroll comment - flex:1 collapsed this to zero height instead of bounding it, since `sheet` is auto-sized to content rather than a definite height. */
+  formScroll: {
+    flexShrink: 1,
+  },
   title: {
     ...neumoText.heading,
     fontSize: 18,
@@ -456,6 +545,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   nameInput: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: neumo.textPrimary,
+  },
+  unitInsetWrap: {
+    marginBottom: 4,
+    width: 100,
+  },
+  unitInput: {
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -507,6 +606,43 @@ const styles = StyleSheet.create({
   },
   toggleThumbOn: {
     alignSelf: 'flex-end',
+  },
+  personalToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 2,
+  },
+  miniToggleTrack: {
+    width: 30,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: neumo.surfaceInset,
+    borderWidth: 1,
+    borderColor: 'rgba(166,176,195,0.4)',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  miniToggleTrackOn: {
+    backgroundColor: neumo.accent,
+    borderColor: neumo.accentDark,
+  },
+  miniToggleThumb: {
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: '#FFFFFF',
+    alignSelf: 'flex-start',
+  },
+  miniToggleThumbOn: {
+    alignSelf: 'flex-end',
+  },
+  personalToggleLabel: {
+    ...neumoText.caption,
+    fontSize: 11,
+    color: neumo.textMuted,
+    flexShrink: 1,
   },
   ingredientToggleLabel: {
     ...neumoText.body,

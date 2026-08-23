@@ -18,7 +18,6 @@ import CategorySection from '../components/CategorySection';
 import CartExcludedSection from '../components/CartExcludedSection';
 import CartItem from '../components/CartItem';
 import ReconciliationModal from '../components/ReconciliationModal';
-import AddItemModal from '../components/AddItemModal';
 import MasterResetModal from '../components/MasterResetModal';
 import { consolidateCart, groupByStatus, groupByCategory, calculateGrandTotal, buildMissingCatalogItems, CatalogItemWithPrice } from '../utils/cartLogic';
 import { fetchUserMode, updateUserMode } from '../api/userApi';
@@ -46,6 +45,14 @@ interface CartScreenProps {
   onToggleChecked: (rowId: string, checked: boolean) => void;
   onMasterReset: () => void;
   onCompleteTrip: (storeId: string, actualTotal: number, manifest: ManifestItem[]) => Promise<boolean>;
+  /**
+   * Kept in the prop contract (App.tsx still wires handleAddItem in) even
+   * though the Cart tab's own "+ New product" entry point was removed per
+   * request - adding new products now happens from the Pricing tab's
+   * "+ Add product" instead (see PriceCatalogView.tsx). Left here rather
+   * than ripping the prop out of App.tsx too, in case a different entry
+   * point wants it back later.
+   */
   onAddItem: (itemId: string, storeId: string, quantity: number) => Promise<void>;
   onNavigateToScanner?: () => void;
 }
@@ -77,30 +84,50 @@ export default function CartScreen({
   const [viewMode, setViewMode] = useState<ViewMode>('store');
   const [reconcilingStore, setReconcilingStore] = useState<StoreGroup | null>(null);
   const [isSubmittingTrip, setIsSubmittingTrip] = useState(false);
-  const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [startedStoreIds, setStartedStoreIds] = useState<Set<string>>(new Set());
   const [catalogEntries, setCatalogEntries] = useState<CatalogItemWithPrice[]>([]);
+  // Feature: Price Catalog's per-item checkbox controls what shows in the
+  // Cart tab. itemId -> includeInCart, built from the same fetchItems()
+  // call catalogEntries already needed - false here means "hide this item
+  // everywhere in Cart tab", not just from the browse/missing-items
+  // section, so it's applied to cartRows below too (see visibleCartRows).
+  const [includeInCartById, setIncludeInCartById] = useState<Map<string, boolean>>(new Map());
 
   useEffect(() => {
     Promise.all([fetchItems(), fetchAllStorePrices()])
       .then(([items, prices]) => {
         const itemsById = new Map(items.map((i) => [i.id, i]));
-        const entries: CatalogItemWithPrice[] = prices.map((p) => ({
-          itemId: p.itemId,
-          itemName: p.itemName,
-          category: itemsById.get(p.itemId)?.category ?? '',
-          unit: itemsById.get(p.itemId)?.unit ?? null,
-          storeId: p.storeId,
-          storeName: p.storeName,
-          price: p.priceAmount,
-        }));
+        setIncludeInCartById(new Map(items.map((i) => [i.id, i.includeInCart])));
+        const entries: CatalogItemWithPrice[] = prices
+          .filter((p) => itemsById.get(p.itemId)?.includeInCart !== false)
+          .map((p) => ({
+            itemId: p.itemId,
+            itemName: p.itemName,
+            category: itemsById.get(p.itemId)?.category ?? '',
+            unit: itemsById.get(p.itemId)?.unit ?? null,
+            storeId: p.storeId,
+            storeName: p.storeName,
+            price: p.priceAmount,
+          }));
         setCatalogEntries(entries);
       })
       .catch(() => {
         /* non-critical - Excluded sections just won't show not-yet-added catalog items if this fails */
       });
   }, []);
+
+  // Applied before any of the grouping/total logic below, so an unchecked
+  // item disappears from the Cart tab consistently everywhere at once -
+  // the store/category views, the grand total, and the checkout manifest
+  // built from itemsToBuy/stillAtHome all derive from this, not the raw
+  // cartRows prop. Falls back to visible (!== false, not === true) if an
+  // item's includeInCart hasn't loaded yet, so rows don't flash hidden
+  // then reappear while that fetch is still in flight.
+  const visibleCartRows = useMemo(
+    () => cartRows.filter((row) => includeInCartById.get(row.itemId) !== false),
+    [cartRows, includeInCartById]
+  );
 
   useEffect(() => {
     fetchUserMode(CURRENT_USER_ID)
@@ -145,13 +172,13 @@ export default function CartScreen({
     [onToggleChecked]
   );
 
-  const { stores, excludedItems } = useMemo(() => consolidateCart(cartRows), [cartRows]);
-  const { itemsToBuy, stillAtHome, excluded } = useMemo(() => groupByStatus(cartRows), [cartRows]);
-  const categoryGroups = useMemo(() => groupByCategory(cartRows), [cartRows]);
+  const { stores, excludedItems } = useMemo(() => consolidateCart(visibleCartRows), [visibleCartRows]);
+  const { itemsToBuy, stillAtHome, excluded } = useMemo(() => groupByStatus(visibleCartRows), [visibleCartRows]);
+  const categoryGroups = useMemo(() => groupByCategory(visibleCartRows), [visibleCartRows]);
 
   const missingCatalogItems = useMemo(
-    () => (mode === 'HOME' ? buildMissingCatalogItems(cartRows, catalogEntries) : []),
-    [mode, cartRows, catalogEntries]
+    () => (mode === 'HOME' ? buildMissingCatalogItems(visibleCartRows, catalogEntries) : []),
+    [mode, visibleCartRows, catalogEntries]
   );
   const excludedItemsWithCatalog = useMemo(
     () => [...excludedItems, ...missingCatalogItems],
@@ -214,14 +241,8 @@ export default function CartScreen({
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Cartculate</Text>
-          <Text style={styles.tagline}>Smart shopping. Playful cooking.</Text>
         </View>
         <View style={styles.headerRight}>
-          <TouchableOpacity onPress={() => setShowAddItemModal(true)}>
-            <NeumoInset borderRadius={neumo.radiusSm} style={styles.addItemInset}>
-              <Text style={styles.addItemButtonText}>+ New product</Text>
-            </NeumoInset>
-          </TouchableOpacity>
           <NeumoInset borderRadius={neumo.radiusSm} style={styles.totalInset}>
             <Text style={styles.totalText}>Total ₱{formatCurrency(grandTotal)}</Text>
           </NeumoInset>
@@ -438,15 +459,6 @@ export default function CartScreen({
         onScanInstead={onNavigateToScanner}
       />
 
-      <AddItemModal
-        visible={showAddItemModal}
-        onCancel={() => setShowAddItemModal(false)}
-        onAdd={async (itemId, storeId, quantity) => {
-          await onAddItem(itemId, storeId, quantity);
-          setShowAddItemModal(false);
-        }}
-      />
-
       <MasterResetModal
         visible={showResetConfirm}
         onCancel={() => setShowResetConfirm(false)}
@@ -473,23 +485,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  addItemInset: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-  },
-  addItemButtonText: {
-    ...neumoText.subheading,
-    fontSize: 12,
-  },
   title: {
     ...neumoText.heading,
     fontSize: 18,
-  },
-  tagline: {
-    fontSize: 10,
-    fontStyle: 'italic',
-    color: neumo.accentDark,
-    marginTop: 1,
   },
   totalInset: {
     paddingHorizontal: 10,

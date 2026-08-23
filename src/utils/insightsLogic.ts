@@ -20,6 +20,50 @@ export function calculateTotalSpent(receipts: PurchaseReceipt[]): number {
   return receipts.reduce((sum, r) => sum + r.totalReceiptSpent, 0);
 }
 
+const MIN_MONTHS_OF_HISTORY = 3;
+const MIN_TRIPS_LOGGED = 3;
+
+export interface InsightsReadiness {
+  isReady: boolean;
+  monthsOfHistory: number;
+  tripsLogged: number;
+}
+
+/**
+ * Feature: Insights should stay hidden behind a placeholder until there's
+ * enough data to be meaningfully accurate, rather than rendering charts
+ * off just one or two receipts. "Enough" is either signal alone, not
+ * both together - a light user with a few months of occasional trips
+ * shouldn't be blocked just because they haven't hit 3 trips yet, and
+ * conversely a heavy shopper who's logged several trips in their first
+ * couple weeks shouldn't have to wait out a calendar clock either.
+ * Ready as soon as EITHER threshold is met.
+ */
+export function evaluateInsightsReadiness(receipts: PurchaseReceipt[]): InsightsReadiness {
+  const tripsLogged = receipts.length;
+
+  let monthsOfHistory = 0;
+  if (receipts.length > 0) {
+    const earliest = receipts.reduce(
+      (min, r) => (r.purchaseDate < min ? r.purchaseDate : min),
+      receipts[0].purchaseDate
+    );
+    const earliestDate = new Date(earliest);
+    const now = new Date();
+    // Whole calendar months elapsed, not a raw day-count/30 - avoids
+    // "29 days" reading as "0 months" when the person would reasonably
+    // call that about a month in.
+    monthsOfHistory =
+      (now.getFullYear() - earliestDate.getFullYear()) * 12 + (now.getMonth() - earliestDate.getMonth());
+  }
+
+  return {
+    isReady: monthsOfHistory >= MIN_MONTHS_OF_HISTORY || tripsLogged >= MIN_TRIPS_LOGGED,
+    monthsOfHistory,
+    tripsLogged,
+  };
+}
+
 /**
  * Filters receipts to the given calendar month (YYYY-MM) and builds the
  * budget summary used by the progress bar.

@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
   },
   itemName: {
     ...neumoText.subheading,
-    fontSize: 15,
+    fontSize: 13,
   },
   chevron: {
     fontSize: 10,

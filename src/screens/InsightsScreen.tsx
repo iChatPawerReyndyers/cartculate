@@ -16,6 +16,7 @@ import {
   buildStoreSpendingTotals,
   buildCategoryBreakdown,
   buildMonthlyStoreSpending,
+  evaluateInsightsReadiness,
 } from '../utils/insightsLogic';
 import { PurchaseReceipt, CartRow } from '../types';
 import { neumo, neumoText, NeumoAccentRaised } from '../utils/neumorphic';
@@ -75,6 +76,11 @@ export default function InsightsScreen() {
 
   const homeStockSavings = useMemo(() => calculateHomeStockSavings(cartRows), [cartRows]);
 
+  // Feature: hide charts behind a placeholder until there's enough
+  // history to be meaningfully accurate - see evaluateInsightsReadiness's
+  // doc comment for why it's an "either threshold" gate, not "both".
+  const readiness = useMemo(() => evaluateInsightsReadiness(receipts), [receipts]);
+
   return (
     <View style={styles.safeArea}>
       <View style={styles.header}>
@@ -93,6 +99,20 @@ export default function InsightsScreen() {
               <Text style={styles.retryButtonText}>Retry</Text>
             </NeumoAccentRaised>
           </TouchableOpacity>
+        </View>
+      ) : !readiness.isReady ? (
+        <View style={styles.centerContent}>
+          <Text style={styles.placeholderEmoji}>📊</Text>
+          <Text style={styles.placeholderTitle}>Insights aren't ready yet</Text>
+          <Text style={styles.placeholderBody}>
+            To keep these numbers accurate, Insights unlocks once you've logged{' '}
+            <Text style={styles.placeholderEmphasis}>3 grocery trips</Text> or have{' '}
+            <Text style={styles.placeholderEmphasis}>3 months</Text> of history - whichever comes
+            first.
+          </Text>
+          <Text style={styles.placeholderProgress}>
+            {readiness.tripsLogged}/3 trips logged · {readiness.monthsOfHistory}/3 months so far
+          </Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -125,6 +145,34 @@ const styles = StyleSheet.create({
     color: neumo.textSecondary,
     textAlign: 'center',
     marginBottom: 16,
+  },
+  placeholderEmoji: {
+    fontSize: 36,
+    marginBottom: 10,
+  },
+  placeholderTitle: {
+    ...neumoText.heading,
+    fontSize: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  placeholderBody: {
+    ...neumoText.body,
+    fontSize: 13,
+    color: neumo.textSecondary,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 14,
+  },
+  placeholderEmphasis: {
+    ...neumoText.heading,
+    fontSize: 13,
+    color: neumo.accentDark,
+  },
+  placeholderProgress: {
+    ...neumoText.caption,
+    fontSize: 12,
+    color: neumo.textMuted,
   },
   retryButtonInner: {
     paddingVertical: 10,

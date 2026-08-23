@@ -1,19 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Item, Recipe } from '../types';
 import { Store } from '../api/storeApi';
 import { RecipeIngredientInput } from '../api/recipeApi';
 import { sanitizeDecimalInput, sanitizeIntegerInput, isValidPositiveNumber } from '../utils/inputSanitization';
 import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
-
-const UNIT_OPTIONS: { label: string; value: string | null }[] = [
-  { label: 'pc', value: null },
-  { label: 'g', value: 'g' },
-  { label: 'kg', value: 'kg' },
-  { label: 'pack', value: 'pack' },
-];
+import SelectField from './SelectField';
+import { UNIT_MAX_LENGTH } from '../utils/units';
 
 const AUTO_STORE_VALUE = '__auto__';
 
@@ -49,12 +43,17 @@ function makeEmptyRow(defaultItemId: string): IngredientRow {
 }
 
 /**
- * VISUAL: built on the neumorphic primitives in utils/neumorphic.tsx.
- * BUGFIX: each ingredient card now passes `fullWidth` to NeumoRaised - see
- * neumorphic.tsx's file header for why Shadow-based surfaces need this
- * explicitly to stretch instead of shrinking to content width. Picker
- * dropdowns remain native <Picker> wrapped in an inset well (their
- * internal chrome isn't stylable the same way). No logic changed.
+ * VISUAL: previously the odd one out - this modal used native OS <Picker>
+ * dropdowns in a fixed-height (70%) sheet, while ProductModal (Pricing
+ * tab) already used the custom SelectField bottom-sheet dropdown in a
+ * content-based (maxHeight 88%) sheet. Now matches ProductModal exactly:
+ * SelectField for Ingredient/Unit/Store, maxHeight sheet, and the whole
+ * form (not just the ingredient rows) scrolls together with Cancel/Save
+ * pinned below - see ProductModal.tsx for the reference pattern. No
+ * logic changed. Each ingredient card still passes `fullWidth` to
+ * NeumoRaised - see neumorphic.tsx's file header for why Shadow-based
+ * surfaces need that explicitly to stretch instead of shrinking to
+ * content width.
  */
 export default function NewRecipeModal({
   visible,
@@ -102,7 +101,13 @@ export default function NewRecipeModal({
   }, [visible, mode, existingRecipe, ingredientItems]);
 
   const handleAddRow = () => {
-    if (ingredientItems.length === 0) return;
+    if (ingredientItems.length === 0) {
+      Alert.alert(
+        'No ingredients available',
+        'None of your products are marked as ingredients yet. Go to the Pricing tab, edit a product, and turn on "Ingredient" for anything you cook with.'
+      );
+      return;
+    }
     setRows((current) => [...current, makeEmptyRow(ingredientItems[0].id)]);
   };
 
@@ -149,36 +154,32 @@ export default function NewRecipeModal({
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
       <View style={styles.overlay}>
         <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
-          <Text style={styles.title}>{mode === 'add' ? 'New recipe' : 'Edit recipe'}</Text>
+          <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false}>
+            <Text style={styles.title}>{mode === 'add' ? 'New recipe' : 'Edit recipe'}</Text>
 
-          <Text style={styles.label}>Recipe name</Text>
-          <NeumoInset borderRadius={neumo.radiusSm} style={styles.nameInsetWrap}>
-            <TextInput
-              style={styles.nameInput}
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g. Sinigang"
-              placeholderTextColor={neumo.textMuted}
-            />
-          </NeumoInset>
+            <Text style={styles.label}>Recipe name</Text>
+            <NeumoInset borderRadius={neumo.radiusSm} style={styles.nameInsetWrap}>
+              <TextInput
+                style={styles.nameInput}
+                value={name}
+                onChangeText={setName}
+                placeholder="e.g. Sinigang"
+                placeholderTextColor={neumo.textMuted}
+              />
+            </NeumoInset>
 
-          <Text style={styles.label}>Ingredients</Text>
-          <ScrollView style={styles.rowsScroll}>
+            <Text style={styles.label}>Ingredients</Text>
             {rows.map((row) => (
               <NeumoRaised key={row.key} borderRadius={12} distance={4} style={styles.ingredientCardInner} fullWidth>
                 <View style={styles.ingredientRow}>
-                  <NeumoInset borderRadius={7} style={styles.itemPickerWrap}>
-                    <Picker
-                      selectedValue={row.itemId}
-                      onValueChange={(itemId: string) => updateRow(row.key, { itemId })}
-                      style={styles.itemPicker}
-                      mode="dropdown"
-                    >
-                      {ingredientItems.map((item) => (
-                        <Picker.Item key={item.id} label={item.name} value={item.id} />
-                      ))}
-                    </Picker>
-                  </NeumoInset>
+                  <View style={styles.itemPickerWrap}>
+                    <SelectField
+                      value={row.itemId}
+                      options={ingredientItems.map((item) => ({ label: item.name, value: item.id }))}
+                      sheetTitle="Ingredient"
+                      onChange={(itemId) => updateRow(row.key, { itemId })}
+                    />
+                  </View>
 
                   <NeumoInset borderRadius={6} style={styles.qtyInsetWrap}>
                     <TextInput
@@ -193,18 +194,22 @@ export default function NewRecipeModal({
                     />
                   </NeumoInset>
 
-                  <NeumoInset borderRadius={7} style={styles.unitPickerWrap}>
-                    <Picker
-                      selectedValue={row.unit}
-                      onValueChange={(unit: string | null) => updateRow(row.key, { unit })}
-                      style={styles.unitPicker}
-                      mode="dropdown"
-                    >
-                      {UNIT_OPTIONS.map((opt) => (
-                        <Picker.Item key={opt.label} label={opt.label} value={opt.value} />
-                      ))}
-                    </Picker>
-                  </NeumoInset>
+                  <View style={styles.unitPickerWrap}>
+                    <NeumoInset borderRadius={6} style={styles.unitInsetWrap}>
+                      <TextInput
+                        style={styles.unitInput}
+                        value={row.unit ?? ''}
+                        onChangeText={(text) => {
+                          const trimmed = text.slice(0, UNIT_MAX_LENGTH);
+                          updateRow(row.key, { unit: trimmed.length === 0 ? null : trimmed });
+                        }}
+                        placeholder="pc"
+                        placeholderTextColor={neumo.textMuted}
+                        maxLength={UNIT_MAX_LENGTH}
+                        autoCapitalize="none"
+                      />
+                    </NeumoInset>
+                  </View>
 
                   <TouchableOpacity onPress={() => handleRemoveRow(row.key)}>
                     <NeumoRaised borderRadius={12} distance={2} style={styles.removeButtonInner}>
@@ -215,19 +220,17 @@ export default function NewRecipeModal({
 
                 <View style={styles.storeRoutingRow}>
                   <Text style={styles.storeRoutingLabel}>Store:</Text>
-                  <NeumoInset borderRadius={7} style={styles.storePickerWrap}>
-                    <Picker
-                      selectedValue={row.targetStoreId}
-                      onValueChange={(targetStoreId: string) => updateRow(row.key, { targetStoreId })}
-                      style={styles.storePicker}
-                      mode="dropdown"
-                    >
-                      <Picker.Item label="Default (auto)" value={AUTO_STORE_VALUE} />
-                      {stores.map((store) => (
-                        <Picker.Item key={store.id} label={store.name} value={store.id} />
-                      ))}
-                    </Picker>
-                  </NeumoInset>
+                  <View style={styles.storePickerWrap}>
+                    <SelectField
+                      value={row.targetStoreId}
+                      options={[
+                        { label: 'Default (auto)', value: AUTO_STORE_VALUE },
+                        ...stores.map((store) => ({ label: store.name, value: store.id })),
+                      ]}
+                      sheetTitle="Store"
+                      onChange={(targetStoreId) => updateRow(row.key, { targetStoreId })}
+                    />
+                  </View>
                 </View>
 
                 <TouchableOpacity
@@ -242,13 +245,13 @@ export default function NewRecipeModal({
                 </TouchableOpacity>
               </NeumoRaised>
             ))}
-          </ScrollView>
 
-          <TouchableOpacity onPress={handleAddRow}>
-            <View style={styles.addRowButton}>
-              <Text style={styles.addRowButtonText}>+ Add ingredient</Text>
-            </View>
-          </TouchableOpacity>
+            <TouchableOpacity onPress={handleAddRow}>
+              <View style={styles.addRowButton}>
+                <Text style={styles.addRowButtonText}>+ Add ingredient</Text>
+              </View>
+            </TouchableOpacity>
+          </ScrollView>
 
           <View style={styles.buttonRow}>
             <TouchableOpacity style={styles.cancelButtonWrap} onPress={onCancel} disabled={isSaving}>
@@ -284,7 +287,34 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    height: '70%',
+    maxHeight: '88%',
+  },
+  /**
+   * BUGFIX: without flex:1 here, this ScrollView sized itself to its full
+   * content height instead of bounding itself within `sheet`'s maxHeight -
+   * on any recipe with content tall enough to overflow (even just one
+   * ingredient row), the ScrollView rendered past the visible area and
+   * behind the pinned Cancel/Save row below, which - being declared later
+   * in JSX - sat on top in z-order and silently absorbed taps meant for
+   * "+ Add ingredient" underneath it. flex:1 makes Yoga correctly size
+   * this to (sheet's resolved height - buttonRow's height), the standard
+   * RN pattern for "scrollable content + pinned footer".
+   */
+  /**
+   * BUGFIX (attempt 2): flex:1 was wrong here - `sheet` isn't a
+   * definite-height container, it's auto-sized to content up to
+   * maxHeight, so flex:1 had no "available space" to expand into and
+   * this ScrollView collapsed to zero height instead (wiping out the
+   * entire form - name field, ingredient rows, the Add button, all of
+   * it). flexShrink:1 is the correct fix for "scrollable body + pinned
+   * footer inside an auto-sizing container": Yoga first sizes this to
+   * its natural content height (so it's never zero when content fits),
+   * and only shrinks it down to fit within sheet's maxHeight cap once
+   * content actually overflows - which is exactly what "leave room for
+   * the pinned buttonRow, but don't collapse otherwise" means.
+   */
+  formScroll: {
+    flexShrink: 1,
   },
   title: {
     ...neumoText.heading,
@@ -305,9 +335,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: neumo.textPrimary,
   },
-  rowsScroll: {
-    flex: 1,
-  },
   ingredientCardInner: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -321,9 +348,6 @@ const styles = StyleSheet.create({
   itemPickerWrap: {
     flex: 2,
   },
-  itemPicker: {
-    color: neumo.textPrimary,
-  },
   qtyInsetWrap: {
     width: 54,
   },
@@ -336,7 +360,13 @@ const styles = StyleSheet.create({
   unitPickerWrap: {
     width: 90,
   },
-  unitPicker: {
+  unitInsetWrap: {
+    width: '100%',
+  },
+  unitInput: {
+    textAlign: 'center',
+    fontSize: 13,
+    paddingVertical: 6,
     color: neumo.textPrimary,
   },
   removeButtonInner: {
@@ -363,9 +393,6 @@ const styles = StyleSheet.create({
   },
   storePickerWrap: {
     flex: 1,
-  },
-  storePicker: {
-    color: neumo.textPrimary,
   },
   optionalRow: {
     flexDirection: 'row',

@@ -38,6 +38,7 @@
 import { CartRow, Recipe, RecipeIngredient, PurchaseReceipt, ManifestItem, Item, UserMode, CategoryDefaultStore } from '../types';
 import type { Store } from '../api/storeApi';
 import type { StorePriceEntry } from '../api/storePriceApi';
+import { CURRENT_USER_ID } from '../api/config';
 
 import { mockCartRows as seedCartRows } from './mockCartData';
 import { mockRecipes as seedRecipes } from './mockRecipeData';
@@ -60,10 +61,13 @@ const db = {
   items: deepCopy(seedItems) as Item[],
   stores: deepCopy(seedStores) as Store[],
   storePrices: deepCopy(seedStorePrices) as StorePriceEntry[],
+  /** Feature: personal price overrides. Keyed loosely by (userId, itemId, storeId) via plain array scan - small enough dataset in mock mode that an index isn't worth it. Empty by default; only CURRENT_USER_ID's rows are ever read in mock mode since there's no real multi-user session here. */
+  personalStorePrices: [] as (StorePriceEntry & { userId: string })[],
   userMode: 'HOME' as UserMode,
   // category name -> storeId. Only affects NEW items created in that
   // category from here on (see dbCreateItem) - never retroactive.
   categoryDefaultStores: {} as Record<string, string>,
+  categoryDefaultIsIngredient: {} as Record<string, boolean>,
 };
 
 let idCounter = 1000; // seed data uses small ids like "1", "2" - keep mock-generated ids clearly distinct
@@ -109,6 +113,7 @@ export function dbCreateItem(
     unit,
     isIngredient,
     defaultStoreId: resolvedDefaultStoreId,
+    includeInCart: true,
   };
   db.items.push(item);
   return deepCopy(item);
@@ -157,9 +162,35 @@ export function dbUpdateItem(
     unit,
     isIngredient,
     defaultStoreId: defaultStoreId ?? null,
+    includeInCart: true,
   };
   db.items.push(created);
   return deepCopy(created);
+}
+
+/** Mock fallback for PATCH /api/items/{itemId}/include-in-cart - the Price Catalog checkbox. */
+export function dbUpdateIncludeInCart(itemId: string, includeInCart: boolean): Item {
+  const existing = db.items.find((i) => i.id === itemId);
+  if (!existing) throw new Error(`Item not found: ${itemId}`);
+  existing.includeInCart = includeInCart;
+  return deepCopy(existing);
+}
+
+/**
+ * Mock fallback for DELETE /api/items/{itemId}. Mirrors ItemService's
+ * real cascade on the backend (see that file's javadoc for why a plain
+ * item removal isn't safe): strips this item's prices, its rows out of
+ * every cart, and its ingredient lines out of every recipe, before
+ * removing the item itself.
+ */
+export function dbDeleteItem(itemId: string): void {
+  db.storePrices = db.storePrices.filter((p) => p.itemId !== itemId);
+  db.personalStorePrices = db.personalStorePrices.filter((p) => p.itemId !== itemId);
+  db.cartRows = db.cartRows.filter((r) => r.itemId !== itemId);
+  for (const recipe of db.recipes) {
+    recipe.ingredients = recipe.ingredients.filter((ing) => ing.itemId !== itemId);
+  }
+  db.items = db.items.filter((i) => i.id !== itemId);
 }
 
 // ─── Stores ─────────────────────────────────────────────────────────────
@@ -190,27 +221,89 @@ export function dbCreateStore(name: string): Store {
 // that already exists, and an item's own explicit default always takes
 // priority over this once set (see resolveDefaultStoreFor below).
 
+// ─── Category default stores & ingredient flag ─────────────────────────
+// New products created in a category are pre-filled with this as their
+// own Item.defaultStoreId (see dbCreateItem above) and their initial
+// "Ingredient" toggle state (see ProductModal.tsx). Purely a
+// creation-time convenience - changing a category's default never
+// touches any item that already exists, and an item's own explicit
+// value always takes priority over this once set.
+
 export function dbGetCategoryDefaultStores(): CategoryDefaultStore[] {
-  return Object.entries(db.categoryDefaultStores).map(([category, storeId]) => {
-    const store = dbFindStore(storeId);
-    return { category, storeId, storeName: store?.name ?? 'Unknown store' };
+  // Union of every category that has EITHER setting configured, so a
+  // category with only defaultIsIngredient=true (no store) still shows up.
+  const categories = new Set([
+    ...Object.keys(db.categoryDefaultStores),
+    ...Object.keys(db.categoryDefaultIsIngredient).filter((c) => db.categoryDefaultIsIngredient[c]),
+  ]);
+  return Array.from(categories).map((category) => {
+    const storeId = db.categoryDefaultStores[category];
+    const store = storeId ? dbFindStore(storeId) : undefined;
+    return {
+      category,
+      storeId: storeId ?? null,
+      storeName: store?.name ?? (storeId ? 'Unknown store' : null),
+      defaultIsIngredient: db.categoryDefaultIsIngredient[category] ?? false,
+    };
   });
 }
 
 export function dbSetCategoryDefaultStore(category: string, storeId: string): CategoryDefaultStore {
   db.categoryDefaultStores[category] = storeId;
   const store = dbFindStore(storeId);
-  return { category, storeId, storeName: store?.name ?? 'Unknown store' };
+  return {
+    category,
+    storeId,
+    storeName: store?.name ?? 'Unknown store',
+    defaultIsIngredient: db.categoryDefaultIsIngredient[category] ?? false,
+  };
 }
 
 export function dbClearCategoryDefaultStore(category: string): void {
   delete db.categoryDefaultStores[category];
 }
 
+export function dbSetCategoryDefaultIsIngredient(category: string, defaultIsIngredient: boolean): CategoryDefaultStore {
+  db.categoryDefaultIsIngredient[category] = defaultIsIngredient;
+  const storeId = db.categoryDefaultStores[category];
+  const store = storeId ? dbFindStore(storeId) : undefined;
+  return {
+    category,
+    storeId: storeId ?? null,
+    storeName: store?.name ?? (storeId ? 'Unknown store' : null),
+    defaultIsIngredient,
+  };
+}
+
 // ─── Store prices ───────────────────────────────────────────────────────
 
-export function dbGetStorePrices(): StorePriceEntry[] {
-  return deepCopy(db.storePrices);
+/**
+ * Mock fallback for GET /api/users/{userId}/store-prices. Mirrors the
+ * backend's resolution logic (StorePriceService.getResolvedPricesForUser):
+ * shared baseline, except wherever CURRENT_USER_ID has a personal
+ * override, which wins. Named without a userId param (unlike the real
+ * API) since mock mode only ever has one effective user in play - see
+ * the db.personalStorePrices comment above.
+ */
+export function dbGetResolvedStorePricesForUser(): StorePriceEntry[] {
+  const userId = String(CURRENT_USER_ID);
+  const overrides = db.personalStorePrices.filter((p) => p.userId === userId);
+  const overrideKey = (itemId: string, storeId: string) => `${itemId}:${storeId}`;
+  const overrideMap = new Map(overrides.map((o) => [overrideKey(o.itemId, o.storeId), o]));
+
+  const resolved: StorePriceEntry[] = db.storePrices.map((sp) => {
+    const override = overrideMap.get(overrideKey(sp.itemId, sp.storeId));
+    return override ? { ...override } : { ...sp };
+  });
+
+  const coveredKeys = new Set(db.storePrices.map((sp) => overrideKey(sp.itemId, sp.storeId)));
+  for (const override of overrides) {
+    if (!coveredKeys.has(overrideKey(override.itemId, override.storeId))) {
+      resolved.push({ ...override });
+    }
+  }
+
+  return deepCopy(resolved);
 }
 
 export function dbDeletePrice(storeId: string, itemId: string): void {
@@ -219,7 +312,8 @@ export function dbDeletePrice(storeId: string, itemId: string): void {
 
 export function dbUpsertStorePrices(
   storeId: string,
-  updates: { itemId: string; priceAmount: number }[]
+  updates: { itemId: string; priceAmount: number }[],
+  source: 'SCAN' | 'MANUAL'
 ): StorePriceEntry[] {
   const store = dbFindStore(storeId);
   const storeName = store?.name ?? 'Unknown store';
@@ -233,6 +327,7 @@ export function dbUpsertStorePrices(
       existing.priceAmount = update.priceAmount;
       existing.itemName = itemName;
       existing.storeName = storeName;
+      existing.priceSource = source;
       results.push(existing);
     } else {
       const created: StorePriceEntry = {
@@ -241,12 +336,63 @@ export function dbUpsertStorePrices(
         storeId,
         storeName,
         priceAmount: update.priceAmount,
+        priceSource: source,
+        isPersonalOverride: false,
       };
       db.storePrices.push(created);
       results.push(created);
     }
   }
   return deepCopy(results);
+}
+
+/** Mock fallback for PUT /api/users/{userId}/stores/{storeId}/prices/personal. Mirrors dbUpsertStorePrices above but writes to db.personalStorePrices, scoped to CURRENT_USER_ID. */
+export function dbUpsertPersonalStorePrices(
+  storeId: string,
+  updates: { itemId: string; priceAmount: number }[],
+  source: 'SCAN' | 'MANUAL'
+): StorePriceEntry[] {
+  const userId = String(CURRENT_USER_ID);
+  const store = dbFindStore(storeId);
+  const storeName = store?.name ?? 'Unknown store';
+  const results: StorePriceEntry[] = [];
+
+  for (const update of updates) {
+    const item = dbFindItem(update.itemId);
+    const itemName = item?.name ?? `Item ${update.itemId}`;
+    const existing = db.personalStorePrices.find(
+      (p) => p.userId === userId && p.storeId === storeId && p.itemId === update.itemId
+    );
+    if (existing) {
+      existing.priceAmount = update.priceAmount;
+      existing.itemName = itemName;
+      existing.storeName = storeName;
+      existing.priceSource = source;
+      results.push(existing);
+    } else {
+      const created: StorePriceEntry & { userId: string } = {
+        userId,
+        itemId: update.itemId,
+        itemName,
+        storeId,
+        storeName,
+        priceAmount: update.priceAmount,
+        priceSource: source,
+        isPersonalOverride: true,
+      };
+      db.personalStorePrices.push(created);
+      results.push(created);
+    }
+  }
+  return deepCopy(results);
+}
+
+/** Mock fallback for DELETE /api/users/{userId}/stores/{storeId}/prices/{itemId}/personal - clears CURRENT_USER_ID's override, reverting to the shared baseline. */
+export function dbClearPersonalPrice(storeId: string, itemId: string): void {
+  const userId = String(CURRENT_USER_ID);
+  db.personalStorePrices = db.personalStorePrices.filter(
+    (p) => !(p.userId === userId && p.storeId === storeId && p.itemId === itemId)
+  );
 }
 
 /** Picks the cheapest known store price for an item - the last-resort fallback when an item has no default store (or its default store has no known price for it). */
@@ -312,7 +458,7 @@ export function dbCreateRecipe(name: string, ingredients: IngredientInput[]): Re
   const recipe: Recipe = {
     id: nextId('recipe'),
     name,
-    currentMultiplier: 0,
+    currentMultiplier: 1,
     ingredients: ingredients.map(buildRecipeIngredient),
   };
   db.recipes.push(recipe);
@@ -324,7 +470,7 @@ export function dbUpdateRecipe(recipeId: string, name: string, ingredients: Ingr
   const updated: Recipe = {
     id: recipeId,
     name,
-    currentMultiplier: existing?.currentMultiplier ?? 0,
+    currentMultiplier: existing?.currentMultiplier ?? 1,
     ingredients: ingredients.map(buildRecipeIngredient),
   };
 

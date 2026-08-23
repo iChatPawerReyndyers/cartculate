@@ -1,12 +1,20 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, TextInput, ScrollView, ActivityIndicator, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { fetchAllStorePrices, updateStorePrices, deletePrice, StorePriceEntry } from '../api/storePriceApi';
-import { fetchItems, createItem, updateItem } from '../api/itemApi';
+import {
+  fetchAllStorePrices,
+  updateStorePrices,
+  updatePersonalStorePrices,
+  clearPersonalStorePrice,
+  deletePrice,
+  StorePriceEntry,
+} from '../api/storePriceApi';
+import { fetchItems, createItem, updateItem, updateItemIncludeInCart, deleteItem } from '../api/itemApi';
 import { fetchStores, Store } from '../api/storeApi';
 import {
   fetchCategoryDefaultStores,
   setCategoryDefaultStore,
   clearCategoryDefaultStore,
+  setCategoryDefaultIsIngredient,
 } from '../api/categoryDefaultStoreApi';
 import { ApiError } from '../api/httpClient';
 import { formatCurrency } from '../utils/inputSanitization';
@@ -19,11 +27,18 @@ import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '..
 interface GroupedItemPrice {
   itemId: string;
   itemName: string;
-  prices: { storeId: string; storeName: string; priceAmount: number }[];
+  prices: { storeId: string; storeName: string; priceAmount: number; priceSource: 'SCAN' | 'MANUAL'; isPersonalOverride: boolean }[];
 }
 
-function groupByItem(entries: StorePriceEntry[]): GroupedItemPrice[] {
+function groupByItem(items: Item[], entries: StorePriceEntry[]): GroupedItemPrice[] {
   const map = new Map<string, GroupedItemPrice>();
+  // Seed from the full item catalog first, not just from priced entries -
+  // otherwise a product with no price set yet (or one whose only price
+  // was just deleted) never appears here at all, and there'd be no way
+  // to delete it from this screen.
+  for (const item of items) {
+    map.set(item.id, { itemId: item.id, itemName: item.name, prices: [] });
+  }
   for (const entry of entries) {
     if (!map.has(entry.itemId)) {
       map.set(entry.itemId, { itemId: entry.itemId, itemName: entry.itemName, prices: [] });
@@ -32,6 +47,8 @@ function groupByItem(entries: StorePriceEntry[]): GroupedItemPrice[] {
       storeId: entry.storeId,
       storeName: entry.storeName,
       priceAmount: entry.priceAmount,
+      priceSource: entry.priceSource,
+      isPersonalOverride: entry.isPersonalOverride,
     });
   }
   return Array.from(map.values()).sort((a, b) => a.itemName.localeCompare(b.itemName));
@@ -87,7 +104,7 @@ export default function PriceCatalogView() {
     loadCatalog();
   }, [loadCatalog]);
 
-  const grouped = useMemo(() => groupByItem(entries), [entries]);
+  const grouped = useMemo(() => groupByItem(items, entries), [items, entries]);
 
   const categories = useMemo(() => {
     const fromItems = mergeCategories(items.map((i) => i.category));
@@ -107,7 +124,7 @@ export default function PriceCatalogView() {
   const editingPrices: ExistingProductPrice[] | undefined = editingItem
     ? grouped
         .find((g) => g.itemId === editingItem.id)
-        ?.prices.map((p) => ({ storeId: p.storeId, priceAmount: p.priceAmount }))
+        ?.prices.map((p) => ({ storeId: p.storeId, priceAmount: p.priceAmount, isPersonalOverride: p.isPersonalOverride }))
     : undefined;
 
   const handleCategoryDefaultChange = useCallback(async (category: string, storeId: string | null) => {
@@ -127,6 +144,74 @@ export default function PriceCatalogView() {
     }
   }, []);
 
+  const handleCategoryIngredientDefaultChange = useCallback(async (category: string, defaultIsIngredient: boolean) => {
+    // Optimistic update, matching handleCategoryDefaultChange's pattern - the toggle should
+    // flip instantly, not wait on a round trip, since it's a low-stakes preference.
+    setCategoryDefaultStores((current) => {
+      const existing = current.find((c) => c.category === category);
+      if (existing) {
+        return current.map((c) => (c.category === category ? { ...c, defaultIsIngredient } : c));
+      }
+      return [...current, { category, storeId: null, storeName: null, defaultIsIngredient }];
+    });
+    try {
+      await setCategoryDefaultIsIngredient(category, defaultIsIngredient);
+    } catch (err) {
+      setCategoryDefaultStores((current) =>
+        current.map((c) => (c.category === category ? { ...c, defaultIsIngredient: !defaultIsIngredient } : c))
+      );
+      Alert.alert('Could not update default', 'Please check your connection and try again.');
+    }
+  }, []);
+
+  /**
+   * Feature: per-item checkbox controlling Cart tab visibility. Optimistic
+   * update (flips local state immediately, rolls back on failure) to match
+   * the pattern used everywhere else in this app (handleModeChange in
+   * CartScreen.tsx, handleIncrement/handleDecrement in App.tsx, etc.).
+   */
+  const handleToggleIncludeInCart = useCallback(async (item: Item) => {
+    const nextValue = !item.includeInCart;
+    setItems((current) => current.map((i) => (i.id === item.id ? { ...i, includeInCart: nextValue } : i)));
+    try {
+      await updateItemIncludeInCart(item.id, nextValue);
+    } catch (err) {
+      setItems((current) => current.map((i) => (i.id === item.id ? { ...i, includeInCart: !nextValue } : i)));
+      Alert.alert('Could not update item', 'Please check your connection and try again.');
+    }
+  }, []);
+
+  /**
+   * Deletion cascades wherever this item is referenced (prices at every
+   * store, any cart it's in, any recipe using it - see ItemService's
+   * deleteItem on the backend), so this confirms first rather than doing
+   * the usual optimistic-then-rollback pattern used elsewhere in this
+   * file - a destructive action this wide shouldn't fire on a single
+   * accidental tap.
+   */
+  const handleDeleteItem = useCallback((item: Item) => {
+    Alert.alert(
+      `Delete ${item.name}?`,
+      "This removes it everywhere - its prices at every store, any recipe that uses it, and anyone's cart. This can't be undone.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteItem(item.id);
+              setItems((current) => current.filter((i) => i.id !== item.id));
+              setEntries((current) => current.filter((e) => e.itemId !== item.id));
+            } catch (err) {
+              Alert.alert('Could not delete item', 'Please check your connection and try again.');
+            }
+          },
+        },
+      ]
+    );
+  }, []);
+
   const handleSaveProduct = useCallback(
     async (result: ProductSaveResult) => {
       try {
@@ -138,17 +223,31 @@ export default function PriceCatalogView() {
           itemId = created.id;
         }
 
-        const byStore = new Map<string, { itemId: string; priceAmount: number }[]>();
+        // Feature: personal price overrides. Each row's "This is
+        // different for me" toggle decides which of the two write paths
+        // it goes down - shared/baseline (visible to everyone) or
+        // personal (just CURRENT_USER_ID). Both are batched per-store,
+        // same as before this feature existed.
+        const sharedByStore = new Map<string, { itemId: string; priceAmount: number }[]>();
+        const personalByStore = new Map<string, { itemId: string; priceAmount: number }[]>();
         for (const row of result.priceRows) {
-          if (!byStore.has(row.storeId)) byStore.set(row.storeId, []);
-          byStore.get(row.storeId)!.push({ itemId: itemId!, priceAmount: row.price });
+          const target = row.isPersonal ? personalByStore : sharedByStore;
+          if (!target.has(row.storeId)) target.set(row.storeId, []);
+          target.get(row.storeId)!.push({ itemId: itemId!, priceAmount: row.price });
         }
-        await Promise.all(
-          Array.from(byStore.entries()).map(([storeId, updates]) => updateStorePrices(storeId, updates))
-        );
 
+        await Promise.all([
+          ...Array.from(sharedByStore.entries()).map(([storeId, updates]) =>
+            updateStorePrices(storeId, updates, 'MANUAL')
+          ),
+          ...Array.from(personalByStore.entries()).map(([storeId, updates]) =>
+            updatePersonalStorePrices(storeId, updates, 'MANUAL')
+          ),
+        ]);
+
+        await Promise.all(result.removedStoreIds.map((storeId) => deletePrice(storeId, itemId!)));
         await Promise.all(
-          result.removedStoreIds.map((storeId) => deletePrice(storeId, itemId!))
+          result.clearedPersonalStoreIds.map((storeId) => clearPersonalStorePrice(storeId, itemId!))
         );
 
         setEditingItem(null);
@@ -189,6 +288,7 @@ export default function PriceCatalogView() {
         stores={stores}
         categoryDefaultStores={categoryDefaultStores}
         onChange={handleCategoryDefaultChange}
+        onIngredientDefaultChange={handleCategoryIngredientDefaultChange}
       />
 
       <View style={styles.headerRow}>
@@ -213,22 +313,51 @@ export default function PriceCatalogView() {
           {filtered.map((group, idx) => {
             const item = items.find((i) => i.id === group.itemId);
             return (
-              <TouchableOpacity
-                key={group.itemId}
-                style={[styles.row, idx === 0 && styles.rowFirst]}
-                onPress={() => item && setEditingItem(item)}
-                activeOpacity={0.6}
-              >
-                <Text style={styles.itemName}>{group.itemName}</Text>
-                <View style={styles.rowRight}>
-                  <Text style={styles.priceText} numberOfLines={1}>
-                    {group.prices
-                      .map((p) => `₱${formatCurrency(p.priceAmount)} ${p.storeName}`)
-                      .join(' · ')}
-                  </Text>
-                  <Text style={styles.editIcon}>✎</Text>
-                </View>
-              </TouchableOpacity>
+              <View key={group.itemId} style={[styles.row, idx === 0 && styles.rowFirst]}>
+                {item && (
+                  <TouchableOpacity
+                    style={styles.leadingCheckboxWrap}
+                    onPress={() => handleToggleIncludeInCart(item)}
+                    activeOpacity={0.7}
+                  >
+                    {item.includeInCart ? (
+                      <View style={styles.checkboxChecked}>
+                        <Text style={styles.checkmark}>✓</Text>
+                      </View>
+                    ) : (
+                      <NeumoInset borderRadius={6} style={styles.checkboxInset} />
+                    )}
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={styles.rowMain}
+                  onPress={() => item && setEditingItem(item)}
+                  activeOpacity={0.6}
+                >
+                  <Text style={styles.itemName}>{group.itemName}</Text>
+                  <View style={styles.rowRight}>
+                    <Text style={styles.priceText} numberOfLines={1}>
+                      {group.prices.map((p, i) => (
+                        <Text key={`${p.storeId}-${i}`}>
+                          {i > 0 ? ' · ' : ''}
+                          {`₱${formatCurrency(p.priceAmount)} ${p.storeName}`}
+                          {p.isPersonalOverride ? <Text style={styles.mineTag}> · mine</Text> : null}
+                        </Text>
+                      ))}
+                    </Text>
+                    <Text style={styles.editIcon}>✎</Text>
+                  </View>
+                </TouchableOpacity>
+                {item && (
+                  <TouchableOpacity
+                    style={styles.deleteButtonWrap}
+                    onPress={() => handleDeleteItem(item)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.deleteIcon}>🗑</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             );
           })}
           {filtered.length === 0 && (
@@ -331,7 +460,6 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
     borderTopWidth: 1,
@@ -340,6 +468,33 @@ const styles = StyleSheet.create({
   },
   rowFirst: {
     borderTopWidth: 0,
+  },
+  leadingCheckboxWrap: {
+    // no extra margin - `row`'s gap already spaces this from rowMain
+  },
+  checkboxInset: {
+    width: 20,
+    height: 20,
+  },
+  checkboxChecked: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    backgroundColor: neumo.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkmark: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  rowMain: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
   },
   rowRight: {
     flexDirection: 'row',
@@ -358,9 +513,21 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     textAlign: 'right',
   },
+  mineTag: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: neumo.accentDark,
+  },
   editIcon: {
     fontSize: 13,
     color: neumo.textMuted,
+  },
+  deleteButtonWrap: {
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  deleteIcon: {
+    fontSize: 15,
   },
   emptyText: {
     ...neumoText.body,
