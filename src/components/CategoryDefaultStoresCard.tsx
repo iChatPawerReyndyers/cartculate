@@ -76,7 +76,7 @@ export default function CategoryDefaultStoresCard({
   return (
     <>
       <TouchableOpacity onPress={() => setManagerOpen(true)} activeOpacity={0.8}>
-        <NeumoRaised borderRadius={14} distance={4} style={styles.cardInner} fullWidth>
+        <NeumoRaised borderRadius={14} style={styles.cardInner} fullWidth>
           <View style={styles.cardTextWrap}>
             <Text style={styles.title}>Category defaults</Text>
             <Text style={styles.subtitle}>

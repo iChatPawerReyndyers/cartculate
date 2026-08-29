@@ -20,7 +20,6 @@ interface ReceiptLineItemCardProps {
 export default function ReceiptLineItemCard({ line, onSelectMatch }: ReceiptLineItemCardProps) {
   return (
     <NeumoRaised
-      distance={4}
       fullWidth
       style={[styles.cardInner, line.needsReview && styles.cardInnerNeedsReview]}
     >

@@ -61,10 +61,25 @@ export default function HorizontalWheelPicker({
     setContainerWidth(e.nativeEvent.layout.width);
   }
 
-  function handleMomentumScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
-    const idx = Math.max(0, Math.min(steps.length - 1, Math.round(e.nativeEvent.contentOffset.x / TICK_WIDTH)));
+  function commitFromOffset(offsetX: number) {
+    const idx = Math.max(0, Math.min(steps.length - 1, Math.round(offsetX / TICK_WIDTH)));
     const nextValue = steps[idx];
     if (nextValue !== value) onChange(nextValue);
+  }
+
+  function handleMomentumScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    commitFromOffset(e.nativeEvent.contentOffset.x);
+  }
+
+  // iOS only fires onMomentumScrollEnd after a flick fast enough to trigger
+  // native deceleration. A normal, deliberate drag-and-release doesn't carry
+  // that velocity - the ScrollView still snaps to the nearest tick visually,
+  // but silently, with no JS callback. Without this, only fast flicks would
+  // ever commit a new value, making the picker feel unresponsive to
+  // ordinary swipes.
+  function handleScrollEndDrag(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    const target = e.nativeEvent.targetContentOffset?.x ?? e.nativeEvent.contentOffset.x;
+    commitFromOffset(target);
   }
 
   return (
@@ -79,6 +94,7 @@ export default function HorizontalWheelPicker({
           decelerationRate="fast"
           contentContainerStyle={{ paddingHorizontal: sidePadding }}
           onMomentumScrollEnd={handleMomentumScrollEnd}
+          onScrollEndDrag={handleScrollEndDrag}
           scrollEnabled={!disabled}
         >
           {steps.map((s) => (
@@ -94,14 +110,14 @@ export default function HorizontalWheelPicker({
 
 const styles = StyleSheet.create({
   wrap: {
-    height: 48,
+    height: 36,
     justifyContent: 'center',
   },
   indicator: {
     position: 'absolute',
     left: '50%',
-    top: 4,
-    bottom: 4,
+    top: 2,
+    bottom: 2,
     width: 2,
     marginLeft: -1,
     backgroundColor: neumo.accent,
@@ -115,12 +131,12 @@ const styles = StyleSheet.create({
   },
   tickText: {
     ...neumoText.body,
-    fontSize: 13,
+    fontSize: 12,
     color: neumo.textMuted,
   },
   tickTextActive: {
     ...neumoText.heading,
-    fontSize: 18,
+    fontSize: 15,
     color: neumo.accentDark,
   },
 });

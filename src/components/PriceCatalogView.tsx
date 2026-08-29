@@ -3,7 +3,6 @@ import { View, Text, TextInput, ScrollView, ActivityIndicator, TouchableOpacity,
 import {
   fetchAllStorePrices,
   updateStorePrices,
-  updatePersonalStorePrices,
   clearPersonalStorePrice,
   deletePrice,
   StorePriceEntry,
@@ -223,27 +222,24 @@ export default function PriceCatalogView() {
           itemId = created.id;
         }
 
-        // Feature: personal price overrides. Each row's "This is
-        // different for me" toggle decides which of the two write paths
-        // it goes down - shared/baseline (visible to everyone) or
-        // personal (just CURRENT_USER_ID). Both are batched per-store,
-        // same as before this feature existed.
-        const sharedByStore = new Map<string, { itemId: string; priceAmount: number }[]>();
-        const personalByStore = new Map<string, { itemId: string; priceAmount: number }[]>();
+        // No more "This is different for me" toggle - every price row is
+        // always the shared/baseline price, batched per-store same as
+        // before. clearedPersonalStoreIds (from ProductModal) still needs
+        // applying: it clears any legacy personal override left over from
+        // before this feature was removed (or from the receipt scanner's
+        // separate personal-price flow), so the shared price just saved
+        // above actually takes effect instead of being shadowed by a
+        // stale override - see ProductModal.tsx's ExistingProductPrice
+        // doc comment.
+        const byStore = new Map<string, { itemId: string; priceAmount: number }[]>();
         for (const row of result.priceRows) {
-          const target = row.isPersonal ? personalByStore : sharedByStore;
-          if (!target.has(row.storeId)) target.set(row.storeId, []);
-          target.get(row.storeId)!.push({ itemId: itemId!, priceAmount: row.price });
+          if (!byStore.has(row.storeId)) byStore.set(row.storeId, []);
+          byStore.get(row.storeId)!.push({ itemId: itemId!, priceAmount: row.price });
         }
 
-        await Promise.all([
-          ...Array.from(sharedByStore.entries()).map(([storeId, updates]) =>
-            updateStorePrices(storeId, updates, 'MANUAL')
-          ),
-          ...Array.from(personalByStore.entries()).map(([storeId, updates]) =>
-            updatePersonalStorePrices(storeId, updates, 'MANUAL')
-          ),
-        ]);
+        await Promise.all(
+          Array.from(byStore.entries()).map(([storeId, updates]) => updateStorePrices(storeId, updates, 'MANUAL'))
+        );
 
         await Promise.all(result.removedStoreIds.map((storeId) => deletePrice(storeId, itemId!)));
         await Promise.all(
@@ -309,7 +305,7 @@ export default function PriceCatalogView() {
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.listContent}>
-        <NeumoRaised distance={4} fullWidth style={styles.listInner}>
+        <NeumoRaised fullWidth style={styles.listInner}>
           {filtered.map((group, idx) => {
             const item = items.find((i) => i.id === group.itemId);
             return (
@@ -321,9 +317,9 @@ export default function PriceCatalogView() {
                     activeOpacity={0.7}
                   >
                     {item.includeInCart ? (
-                      <View style={styles.checkboxChecked}>
+                      <NeumoAccentRaised borderRadius={6} distance={3} style={styles.checkboxChecked}>
                         <Text style={styles.checkmark}>✓</Text>
-                      </View>
+                      </NeumoAccentRaised>
                     ) : (
                       <NeumoInset borderRadius={6} style={styles.checkboxInset} />
                     )}
@@ -345,7 +341,6 @@ export default function PriceCatalogView() {
                         </Text>
                       ))}
                     </Text>
-                    <Text style={styles.editIcon}>✎</Text>
                   </View>
                 </TouchableOpacity>
                 {item && (
@@ -479,8 +474,6 @@ const styles = StyleSheet.create({
   checkboxChecked: {
     width: 20,
     height: 20,
-    borderRadius: 6,
-    backgroundColor: neumo.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -517,10 +510,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: neumo.accentDark,
-  },
-  editIcon: {
-    fontSize: 13,
-    color: neumo.textMuted,
   },
   deleteButtonWrap: {
     paddingHorizontal: 4,

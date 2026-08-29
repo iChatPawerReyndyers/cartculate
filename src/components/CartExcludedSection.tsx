@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import CartItem from './CartItem';
 import { ConsolidatedItem, UserMode } from '../types';
@@ -13,6 +13,7 @@ interface CartExcludedSectionProps {
   onSetPantryReason: (rowId: string, reason: string | null) => void;
   onPantryTreasureFound: (rowId: string, reason: string) => void;
   onToggleChecked: (rowId: string, checked: boolean) => void;
+  onRequestMove: (item: ConsolidatedItem) => void;
 }
 
 /**
@@ -21,10 +22,11 @@ interface CartExcludedSectionProps {
  * separately at the bottom instead of appearing inline in their store
  * section. Rendered with the exact same CartItem card used everywhere else.
  *
- * VISUAL: section title + divider now use the shared neumorphic tokens
- * (muted text color, soft divider line) instead of the old flat gray -
- * no structural changes, CartItem cards below already carry the
- * neumorphic card look.
+ * Grouped by category within this section too now (mirrors
+ * CategorySection.tsx's exact grouping/sort/render pattern) - previously
+ * excluded items were just one flat list regardless of category, unlike
+ * every other view in the Cart tab which already groups by category or
+ * store.
  */
 export default function CartExcludedSection({
   excludedItems,
@@ -35,24 +37,47 @@ export default function CartExcludedSection({
   onSetPantryReason,
   onPantryTreasureFound,
   onToggleChecked,
+  onRequestMove,
 }: CartExcludedSectionProps) {
+  const groupedByCategory = useMemo(() => {
+    const map = new Map<string, ConsolidatedItem[]>();
+    for (const item of excludedItems) {
+      const key = item.category || 'Uncategorized';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(item);
+    }
+    return Array.from(map.entries())
+      .map(([category, items]) => ({
+        category,
+        items: items.sort((a, b) => a.itemName.localeCompare(b.itemName)),
+      }))
+      .sort((a, b) => a.category.localeCompare(b.category));
+  }, [excludedItems]);
+
   if (!excludedItems || excludedItems.length === 0) return null;
 
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Cart excluded</Text>
-      {excludedItems.map((item) => (
-        <CartItem
-          key={`${item.itemId}-${item.storeId}`}
-          item={item}
-          mode={mode}
-          onIncrement={onIncrement}
-          onDecrement={onDecrement}
-          onPantryAdjust={onPantryAdjust}
-          onSetPantryReason={onSetPantryReason}
-          onPantryTreasureFound={onPantryTreasureFound}
-          onToggleChecked={onToggleChecked}
-        />
+      {groupedByCategory.map((group) => (
+        <View key={group.category} style={styles.categoryGroup}>
+          <Text style={styles.categoryTitle}>{group.category}</Text>
+          {group.items.map((item) => (
+            <CartItem
+              key={`${item.itemId}-${item.storeId}`}
+              item={item}
+              mode={mode}
+              showStoreName
+              onIncrement={onIncrement}
+              onDecrement={onDecrement}
+              onPantryAdjust={onPantryAdjust}
+              onSetPantryReason={onSetPantryReason}
+              onPantryTreasureFound={onPantryTreasureFound}
+              onToggleChecked={onToggleChecked}
+              onRequestMove={onRequestMove}
+            />
+          ))}
+        </View>
       ))}
     </View>
   );
@@ -70,5 +95,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: neumo.textMuted,
     marginBottom: 10,
+  },
+  categoryGroup: {
+    marginBottom: 8,
+  },
+  categoryTitle: {
+    ...neumoText.heading,
+    fontSize: 12,
+    color: neumo.textMuted,
+    marginBottom: 6,
   },
 });

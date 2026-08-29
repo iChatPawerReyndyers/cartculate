@@ -1,47 +1,51 @@
 // neumorphic.tsx
 // Shared "soft-UI" design tokens + components, matching the reference
-// neumorphic_component_library.html / neumorphic_line_graph.html mockups.
+// neumorphic_component_gallery.html / neumorphic_layout_accurate_preview.html
+// mockups' literal CSS:
+//   box-shadow: 5px 5px 9px darkColor, -5px -5px 9px lightColor
 //
-// WHY THIS NEEDS A LIBRARY: plain React Native cannot render the
-// literal look those HTML mockups use - CSS's
-//   box-shadow: 5px 5px 10px darkColor, -5px -5px 10px lightColor
-// draws TWO colored shadows on the SAME element at once. RN's native
-// shadow props (shadowColor/shadowOffset/shadowOpacity/shadowRadius) only
-// support ONE shadow per element, and Android's native renderer ignores
-// all of those anyway - it only reads `elevation`, which is a fixed gray
-// shadow with no offset/color control.
+// NATIVE boxShadow, NOT react-native-shadow-2: NeumoRaised and
+// NeumoAccentRaised used to build this dual shadow by nesting two
+// <Shadow> layers from the react-native-shadow-2 library (an SVG-based
+// workaround for older RN versions that could only render ONE native
+// shadow per element, and only on iOS). That went through several
+// rounds of real bugs - a `paintInside` default that painted a flat,
+// unrounded box instead of a soft blur, then a visible gap between the
+// card's edge and the shadow once that was fixed - each traceable to
+// the SVG library's own canvas-sizing behavior.
 //
-// react-native-shadow-2 (https://www.npmjs.com/package/react-native-shadow-2)
-// solves this by drawing shadows as SVG instead of relying on the native
-// shadow APIs. NeumoRaised below nests TWO <Shadow> wrappers (one dark
-// shadow offset down-right, one light shadow offset up-left) around the
-// same surface to reproduce the dual-shadow look.
+// React Native 0.76 added a native, cross-platform `boxShadow` style
+// property that implements the actual CSS box-shadow spec at the
+// platform level (New Architecture only, which has been the default
+// since 0.76 - this project is on 0.86, well within range). It takes
+// the exact same comma-separated multi-shadow string as CSS, and is
+// rendered by the platform rather than an SVG canvas.
 //
-// BUGFIX (fullWidth prop): <Shadow> sizes itself to fit its CHILDREN, not
-// to whatever width its own parent would otherwise hand it - unlike a
-// plain RN <View>, it does NOT automatically stretch to fill a flex
-// parent's cross-axis. That's why cards built on NeumoRaised were
-// rendering narrower than the row they were placed in (a visible gap on
-// the right edge) even though the surrounding screen padding looked
-// correct. Card-level usages now explicitly pass `fullWidth` so both
-// Shadow layers AND the inner surface stretch to 100% of their parent;
-// small fixed-size elements (steppers, icon buttons, pills) leave
-// `fullWidth` off (the default) so they keep sizing to their content as
-// before - forcing 100% width on those would blow them up to fill their
-// row instead of staying compact.
+// UNLIKE real CSS, RN's overflow:'hidden' DOES interfere with a
+// boxShadow on the same element - this is a long-documented RN quirk
+// (e.g. facebook/react-native#449), not something specific to this
+// property. On web, overflow only clips child content and leaves an
+// element's own box-shadow alone; in RN, the two compete over the same
+// clip/paint boundary, which showed up here as a sharp, chopped corner
+// instead of a smooth curve. NeumoRaised/NeumoAccentRaised below
+// deliberately do NOT set overflow:'hidden' - RN already renders a
+// View's own background rounded via borderRadius alone, no clipping
+// needed for that; overflow:'hidden' is only for clipping CHILD content
+// that pokes past the rounded edge, and if that's ever needed, it
+// belongs on a separate inner wrapper, never on the same element as
+// boxShadow. NeumoRaised/NeumoAccentRaised build the CSS string
+// directly from the `distance` prop; no react-native-shadow-2 usage
+// remains in either. The package is still listed in package.json
+// (unused now) - safe to remove if nothing else in the app depends on
+// it; NeumoBarChart.tsx was migrated the same way.
 //
-// True INSET ("pressed in") shadows are still not supported by this
-// (or any lightweight) RN library - NeumoInset approximates it with a
-// darker fill + a soft inward-facing border tint. Because it's a plain
-// RN <View> (not Shadow-wrapped), it DOES already stretch to fill its
-// parent by default (RN's normal flex behavior) - no fullWidth prop
-// needed there.
-//
-// npm install react-native-shadow-2   <-- required for this file to work
+// True INSET ("pressed in") shadows aren't expressible via boxShadow
+// either (CSS itself needs a separate `inset` keyword per shadow layer,
+// which this RN property doesn't yet support) - NeumoInset still
+// approximates it with a darker fill + a soft inward-facing border tint.
 
 import React from 'react';
 import { View, ViewStyle, StyleProp, Platform, PixelRatio } from 'react-native';
-import { Shadow } from 'react-native-shadow-2';
 
 export const neumo = {
   background: '#E6EBF2',
@@ -111,8 +115,10 @@ interface NeumoSurfaceProps {
 /**
  * The default soft-UI "popping off the background" surface - cards,
  * primary buttons, nav bars, the active pill inside a segmented toggle.
- * Real dual light+dark shadow via two nested <Shadow> layers (see the
- * file header comment for why this needs react-native-shadow-2 at all).
+ * Real dual light+dark shadow via RN's native `boxShadow` style property
+ * (New Architecture, RN 0.76+ - this project is on 0.86) - see file
+ * header comment for why this replaced the react-native-shadow-2 layers
+ * that used to be here.
  */
 export function NeumoRaised({
   children,
@@ -122,30 +128,30 @@ export function NeumoRaised({
   fullWidth = false,
 }: NeumoSurfaceProps) {
   const stretch: ViewStyle = fullWidth ? { alignSelf: 'stretch', width: '100%' } : {};
+  const offset = distance / 2;
   return (
-    <Shadow
-      distance={distance}
-      startColor={`${neumo.shadowDark}55`}
-      offset={[distance / 2, distance / 2]}
-      style={[{ borderRadius }, stretch]}
+    <View
+      style={[
+        {
+          backgroundColor: neumo.surfaceRaised,
+          borderRadius,
+          // Deliberately NO overflow:'hidden' here - it isn't needed for
+          // RN to render this View's own background rounded (borderRadius
+          // alone does that), and combining overflow:'hidden' with
+          // boxShadow on the same element is a long-documented RN quirk
+          // (the two compete over the same paint/clip boundary) - that's
+          // what was producing a chopped/sharp corner instead of a smooth
+          // curve. If a child ever needs clipping to the rounded shape,
+          // add overflow:'hidden' on a separate inner wrapper instead of
+          // here, so it never shares an element with boxShadow.
+          boxShadow: `${offset}px ${offset}px ${distance}px ${neumo.shadowDark}, ${-offset}px ${-offset}px ${distance}px ${neumo.shadowLight}`,
+        } as ViewStyle,
+        stretch,
+        style,
+      ]}
     >
-      <Shadow
-        distance={distance}
-        startColor={`${neumo.shadowLight}CC`}
-        offset={[-distance / 2, -distance / 2]}
-        style={[{ borderRadius }, stretch]}
-      >
-        <View
-          style={[
-            { backgroundColor: neumo.surfaceRaised, borderRadius, overflow: 'hidden' },
-            stretch,
-            style,
-          ]}
-        >
-          {children}
-        </View>
-      </Shadow>
-    </Shadow>
+      {children}
+    </View>
   );
 }
 
@@ -180,7 +186,9 @@ export function NeumoInset({ children, style, borderRadius = neumo.radiusCard }:
 
 /**
  * A raised surface filled with the accent color instead of the neutral
- * background - the "+" stepper, primary CTA buttons.
+ * background - the "+" stepper, primary CTA buttons. Same dual-shadow
+ * treatment as NeumoRaised, matching the reference gallery's Primary
+ * button.
  */
 export function NeumoAccentRaised({
   children,
@@ -190,17 +198,23 @@ export function NeumoAccentRaised({
   fullWidth = false,
 }: NeumoSurfaceProps) {
   const stretch: ViewStyle = fullWidth ? { alignSelf: 'stretch', width: '100%' } : {};
+  const offset = distance / 2;
   return (
-    <Shadow
-      distance={distance}
-      startColor={`${neumo.shadowDark}55`}
-      offset={[distance / 2, distance / 2]}
-      style={[{ borderRadius }, stretch]}
+    <View
+      style={[
+        {
+          backgroundColor: neumo.accent,
+          borderRadius,
+          // See NeumoRaised's comment - deliberately no overflow:'hidden'
+          // here, same chopped-corner reason.
+          boxShadow: `${offset}px ${offset}px ${distance}px ${neumo.shadowDark}, ${-offset}px ${-offset}px ${distance}px ${neumo.shadowLight}`,
+        } as ViewStyle,
+        stretch,
+        style,
+      ]}
     >
-      <View style={[{ backgroundColor: neumo.accent, borderRadius, overflow: 'hidden' }, stretch, style]}>
-        {children}
-      </View>
-    </Shadow>
+      {children}
+    </View>
   );
 }
 

@@ -14,7 +14,7 @@ export default function BudgetProgressCard({ summary }: BudgetProgressCardProps)
     : Math.min(100, Math.round((summary.amountSpent / summary.budgetLimit) * 100));
 
   return (
-    <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
+    <NeumoRaised fullWidth style={styles.cardInner}>
       <Text style={styles.title}>Monthly budget</Text>
       <View style={styles.amountRow}>
         <Text style={styles.spentText}>₱{summary.amountSpent.toFixed(0)} spent</Text>

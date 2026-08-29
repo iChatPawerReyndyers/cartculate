@@ -18,14 +18,14 @@ export default function ProductInsightsList({ receipts }: ProductInsightsListPro
 
   if (products.length === 0) {
     return (
-      <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
+      <NeumoRaised fullWidth style={styles.cardInner}>
         <Text style={styles.emptyText}>No purchase history yet - product trends will show up here once you log a trip.</Text>
       </NeumoRaised>
     );
   }
 
   return (
-    <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
+    <NeumoRaised fullWidth style={styles.cardInner}>
       <Text style={styles.title}>Per-product trends &amp; buying habits</Text>
       {products.map((product, idx) => {
         const isExpanded = expandedItemId === product.itemId;

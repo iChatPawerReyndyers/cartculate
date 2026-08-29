@@ -195,9 +195,9 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
                 onPress={() => setIsIngredient((v) => !v)}
                 activeOpacity={0.7}
               >
-                <View style={[styles.toggleTrack, isIngredient && styles.toggleTrackOn]}>
+                <NeumoInset borderRadius={11} style={[styles.toggleTrack, isIngredient && styles.toggleTrackOn]}>
                   <View style={[styles.toggleThumb, isIngredient && styles.toggleThumbOn]} />
-                </View>
+                </NeumoInset>
                 <Text style={styles.ingredientToggleLabel}>Can be a recipe ingredient</Text>
               </TouchableOpacity>
 
@@ -340,16 +340,11 @@ const styles = StyleSheet.create({
   toggleTrack: {
     width: 40,
     height: 22,
-    borderRadius: 11,
-    backgroundColor: neumo.surfaceInset,
-    borderWidth: 1,
-    borderColor: 'rgba(166,176,195,0.4)',
     padding: 2,
     justifyContent: 'center',
   },
   toggleTrackOn: {
     backgroundColor: neumo.accent,
-    borderColor: neumo.accentDark,
   },
   toggleThumb: {
     width: 18,
@@ -357,6 +352,11 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     backgroundColor: '#FFFFFF',
     alignSelf: 'flex-start',
+    shadowColor: neumo.shadowDark,
+    shadowOffset: { width: 1, height: 1 },
+    shadowOpacity: 0.35,
+    shadowRadius: 2,
+    elevation: 2,
   },
   toggleThumbOn: {
     alignSelf: 'flex-end',

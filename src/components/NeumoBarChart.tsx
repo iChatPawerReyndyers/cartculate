@@ -1,17 +1,17 @@
 // NeumoBarChart.tsx
 // Replaces react-native-chart-kit's <BarChart> for screens that want the
 // neumorphic "pillar" look approved in the chart preview mockup - each bar
-// is its own raised Shadow-wrapped surface (same react-native-shadow-2
-// dual-shadow technique as NeumoRaised in utils/neumorphic.tsx) rather than
-// a flat SVG rect, because chart-kit renders its bars as one fixed SVG
-// group with no per-bar style hook to attach a shadow to.
+// gets its own dual shadow via RN's native `boxShadow` style property
+// (New Architecture, RN 0.76+ - this project is on 0.86; see the longer
+// explanation in utils/neumorphic.tsx's header) rather than a flat SVG
+// rect, because chart-kit renders its bars as one fixed SVG group with no
+// per-bar style hook to attach a shadow to.
 //
 // Pure presentation component - callers still own their own data shaping
 // (StoreComparisonChart.tsx, etc. build `bars` from their existing types).
 
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Shadow } from 'react-native-shadow-2';
+import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { neumo, neumoText } from '../utils/neumorphic';
 
 export interface NeumoBarDatum {
@@ -49,23 +49,18 @@ export default function NeumoBarChart({
             <Text style={styles.valueLabel} numberOfLines={1}>
               {formatValue(d.value)}
             </Text>
-            <Shadow
-              distance={3}
-              startColor={`${neumo.shadowDark}66`}
-              offset={[2, 2]}
-              style={styles.barShadowOuter}
+            <View
+              style={[
+                styles.bar,
+                {
+                  height: barHeight,
+                  backgroundColor: barColor,
+                  boxShadow: `1.5px 1.5px 3px ${neumo.shadowDark}, -1.5px -1.5px 3px ${neumo.shadowLight}`,
+                } as ViewStyle,
+              ]}
             >
-              <Shadow
-                distance={3}
-                startColor={`${neumo.shadowLight}CC`}
-                offset={[-2, -2]}
-                style={styles.barShadowOuter}
-              >
-                <View style={[styles.bar, { height: barHeight, backgroundColor: barColor }]}>
-                  <View style={styles.barHighlight} />
-                </View>
-              </Shadow>
-            </Shadow>
+              <View style={styles.barHighlight} />
+            </View>
             <Text style={styles.categoryLabel} numberOfLines={1}>
               {d.label}
             </Text>
@@ -95,13 +90,9 @@ const styles = StyleSheet.create({
     color: neumo.accentDark,
     marginBottom: 6,
   },
-  barShadowOuter: {
-    borderRadius: 8,
-  },
   bar: {
     width: BAR_WIDTH,
     borderRadius: 8,
-    overflow: 'hidden',
   },
   barHighlight: {
     position: 'absolute',

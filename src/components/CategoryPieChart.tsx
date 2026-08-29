@@ -21,7 +21,7 @@ export default function CategoryPieChart({ breakdown }: CategoryPieChartProps) {
   }));
 
   return (
-    <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
+    <NeumoRaised fullWidth style={styles.cardInner}>
       <Text style={styles.title}>Spending by category</Text>
       <NeumoDonutChart slices={slices} formatValue={(v) => `₱${formatCurrency(v)}`} />
     </NeumoRaised>

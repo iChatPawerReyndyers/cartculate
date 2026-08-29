@@ -15,7 +15,7 @@ interface HomeStockSavingsCardProps {
  */
 export default function HomeStockSavingsCard({ totalSaved }: HomeStockSavingsCardProps) {
   return (
-    <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
+    <NeumoRaised fullWidth style={styles.cardInner}>
       <Text style={styles.title}>🧊 Money saved from home stock</Text>
       <Text style={styles.amount}>₱{formatCurrency(totalSaved)}</Text>
       <Text style={styles.hint}>

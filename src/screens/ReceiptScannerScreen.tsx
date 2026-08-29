@@ -1,7 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
@@ -15,14 +16,18 @@ import {
 } from 'react-native-image-picker';
 import ReceiptLineItemCard from '../components/ReceiptLineItemCard';
 import PriceCatalogView from '../components/PriceCatalogView';
+import SelectField from '../components/SelectField';
 import { scanReceipt } from '../api/receiptScanApi';
 import { applyManualMatch, isReadyToConfirm, buildStorePriceUpdates, buildPurchaseHistoryFromReceipt } from '../utils/receiptLogic';
 import { createPurchase } from '../api/purchaseApi';
 import { updatePersonalStorePrices } from '../api/storePriceApi';
+import { fetchStores, createStore, Store } from '../api/storeApi';
 import { CURRENT_USER_ID } from '../api/config';
 import { ApiError } from '../api/httpClient';
 import { ReceiptScanResult } from '../types';
 import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
+
+const ADD_NEW_STORE_VALUE = '__add_new_store__';
 
 type ScreenState = 'idle' | 'processing' | 'reviewing' | 'confirming';
 type SubTab = 'scan' | 'catalog';
@@ -38,6 +43,23 @@ export default function ReceiptScannerScreen() {
   const [subTab, setSubTab] = useState<SubTab>('catalog');
   const [screenState, setScreenState] = useState<ScreenState>('idle');
   const [scanResult, setScanResult] = useState<ReceiptScanResult | null>(null);
+  const [stores, setStores] = useState<Store[]>([]);
+  // Seeded from the OCR-detected store once a scan completes, but always
+  // user-editable from here - OCR can misread a store name or fail to
+  // match one at all, so this is a real "which store is this?" prompt,
+  // not just a read-only label.
+  const [storePickerValue, setStorePickerValue] = useState<string>('');
+  const [newStoreText, setNewStoreText] = useState('');
+
+  useEffect(() => {
+    fetchStores()
+      .then(setStores)
+      .catch(() => {
+        // Non-fatal: the picker just shows fewer options (or none) if
+        // this fails - scanning/reviewing still works, and stores are
+        // refetched fresh next time the screen mounts.
+      });
+  }, []);
 
   const handlePickAsset = useCallback(async (asset: Asset | undefined) => {
     if (!asset?.uri || !asset?.base64) {
@@ -48,6 +70,8 @@ export default function ReceiptScannerScreen() {
     try {
       const result = await scanReceipt(asset.base64, asset.type ?? 'image/jpeg');
       setScanResult(result);
+      setStorePickerValue(result.storeId);
+      setNewStoreText('');
       setScreenState('reviewing');
     } catch (err) {
       Alert.alert('Scan failed', 'Could not read that receipt. Please try again.');
@@ -78,10 +102,36 @@ export default function ReceiptScannerScreen() {
 
   const handleConfirm = useCallback(async () => {
     if (!scanResult) return;
+
+    if (storePickerValue === ADD_NEW_STORE_VALUE && newStoreText.trim().length === 0) {
+      Alert.alert('Store name needed', "Type the new store's name before confirming.");
+      return;
+    }
+
     setScreenState('confirming');
 
     try {
-      const priceUpdates = buildStorePriceUpdates(scanResult);
+      let resolvedStoreId = storePickerValue;
+      let resolvedStoreName = stores.find((s) => s.id === storePickerValue)?.name ?? scanResult.storeName;
+
+      if (storePickerValue === ADD_NEW_STORE_VALUE) {
+        const created = await createStore(newStoreText.trim());
+        resolvedStoreId = created.id;
+        resolvedStoreName = created.name;
+        setStores((current) => [...current, created]);
+      }
+
+      // Patch the resolved store into scanResult rather than threading a
+      // separate storeId through buildStorePriceUpdates/
+      // buildPurchaseHistoryFromReceipt - both already read storeId
+      // straight off scanResult, so this keeps receiptLogic.ts untouched.
+      const finalScanResult: ReceiptScanResult = {
+        ...scanResult,
+        storeId: resolvedStoreId,
+        storeName: resolvedStoreName,
+      };
+
+      const priceUpdates = buildStorePriceUpdates(finalScanResult);
       // Feature: personal price overrides. A scanned receipt is
       // inherently CURRENT_USER_ID's own purchase at their own suki/store
       // visit - confirming it now sets their PERSONAL price for these
@@ -90,23 +140,25 @@ export default function ReceiptScannerScreen() {
       // can get a different price without either of them overwriting the
       // other. See storePriceApi.ts's updatePersonalStorePrices.
       await updatePersonalStorePrices(
-        scanResult.storeId,
+        resolvedStoreId,
         priceUpdates.map((u) => ({ itemId: u.itemId, priceAmount: u.priceAmount })),
         'SCAN'
       );
 
-      const receiptPayload = buildPurchaseHistoryFromReceipt(scanResult);
+      const receiptPayload = buildPurchaseHistoryFromReceipt(finalScanResult);
       await createPurchase(CURRENT_USER_ID, receiptPayload);
 
       Alert.alert('Confirmed', 'Store prices and purchase history updated.');
       setScanResult(null);
+      setStorePickerValue('');
+      setNewStoreText('');
       setScreenState('idle');
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not save this receipt.';
       Alert.alert('Confirm failed', message);
       setScreenState('reviewing');
     }
-  }, [scanResult]);
+  }, [scanResult, storePickerValue, newStoreText, stores]);
 
   // Wrap the two static tab targets in touch handlers even when rendered
   // as the raised (already-active) pill, so tapping the already-active
@@ -184,17 +236,44 @@ export default function ReceiptScannerScreen() {
     );
   }
 
-  const readyToConfirm = scanResult ? isReadyToConfirm(scanResult) : false;
+  const hasValidStoreSelection =
+    storePickerValue !== '' && (storePickerValue !== ADD_NEW_STORE_VALUE || newStoreText.trim().length > 0);
+  const readyToConfirm = scanResult ? isReadyToConfirm(scanResult) && hasValidStoreSelection : false;
   const isConfirming = screenState === 'confirming';
+
+  const storeOptions = [
+    ...stores.map((store) => ({ label: store.name, value: store.id })),
+    { label: '+ Add new store...', value: ADD_NEW_STORE_VALUE },
+  ];
 
   return (
     <View style={styles.safeArea}>
       {subTabBarWithHandlers}
       <View style={styles.header}>
         <Text style={styles.title}>Verify receipt</Text>
-        <Text style={styles.subtitle}>
-          {scanResult?.storeName} · scanned just now
-        </Text>
+        <Text style={styles.fieldLabel}>Register this receipt to which store?</Text>
+        <SelectField
+          value={storePickerValue}
+          options={storeOptions}
+          sheetTitle="Store"
+          onChange={(value) => {
+            setStorePickerValue(value);
+            if (value !== ADD_NEW_STORE_VALUE) setNewStoreText('');
+          }}
+        />
+        {storePickerValue === ADD_NEW_STORE_VALUE && (
+          <NeumoInset borderRadius={neumo.radiusSm} style={styles.newStoreInsetWrap}>
+            <TextInput
+              style={styles.newStoreInput}
+              value={newStoreText}
+              onChangeText={setNewStoreText}
+              placeholder="Type the new store's name"
+              placeholderTextColor={neumo.textMuted}
+              autoFocus
+            />
+          </NeumoInset>
+        )}
+        <Text style={styles.subtitle}>Scanned just now</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -222,7 +301,11 @@ export default function ReceiptScannerScreen() {
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <Text style={styles.primaryButtonText}>
-              {readyToConfirm ? 'Confirm & update Store Prices' : 'Resolve flagged items first'}
+              {readyToConfirm
+                ? 'Confirm & update Store Prices'
+                : !hasValidStoreSelection
+                ? 'Select a store first'
+                : 'Resolve flagged items first'}
             </Text>
           )}
         </NeumoAccentRaised>
@@ -273,6 +356,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 12,
     paddingBottom: 6,
+  },
+  fieldLabel: {
+    ...neumoText.caption,
+    fontSize: 12,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  newStoreInsetWrap: {
+    marginTop: 6,
+  },
+  newStoreInput: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: neumo.textPrimary,
   },
   title: {
     ...neumoText.heading,

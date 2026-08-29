@@ -19,13 +19,15 @@ import CartExcludedSection from '../components/CartExcludedSection';
 import CartItem from '../components/CartItem';
 import ReconciliationModal from '../components/ReconciliationModal';
 import MasterResetModal from '../components/MasterResetModal';
+import MoveToStoreModal from '../components/MoveToStoreModal';
 import { consolidateCart, groupByStatus, groupByCategory, calculateGrandTotal, buildMissingCatalogItems, CatalogItemWithPrice } from '../utils/cartLogic';
 import { fetchUserMode, updateUserMode } from '../api/userApi';
 import { fetchItems } from '../api/itemApi';
 import { fetchAllStorePrices } from '../api/storePriceApi';
+import { fetchStores, Store } from '../api/storeApi';
+import { moveCartItem } from '../api/cartApi';
 import { CURRENT_USER_ID } from '../api/config';
-import { MONTHLY_BUDGET_LIMIT } from '../utils/budgetConfig';
-import { CartRow, ManifestItem, StoreGroup, UserMode } from '../types';
+import { CartRow, ManifestItem, StoreGroup, UserMode, ConsolidatedItem } from '../types';
 import { formatCurrency } from '../utils/inputSanitization';
 import { neumo, neumoText, NeumoRaised, NeumoInset } from '../utils/neumorphic';
 
@@ -55,6 +57,7 @@ interface CartScreenProps {
    */
   onAddItem: (itemId: string, storeId: string, quantity: number) => Promise<void>;
   onNavigateToScanner?: () => void;
+  onMoveItem: (itemId: string, fromStoreId: string, toStoreId: string) => Promise<void>;
 }
 
 /**
@@ -78,6 +81,7 @@ export default function CartScreen({
   onCompleteTrip,
   onAddItem,
   onNavigateToScanner,
+  onMoveItem,
 }: CartScreenProps) {
   const [mode, setMode] = useState<UserMode>('HOME');
   const [modeLoading, setModeLoading] = useState(true);
@@ -93,6 +97,21 @@ export default function CartScreen({
   // everywhere in Cart tab", not just from the browse/missing-items
   // section, so it's applied to cartRows below too (see visibleCartRows).
   const [includeInCartById, setIncludeInCartById] = useState<Map<string, boolean>>(new Map());
+  // Long-press-to-move: which item (if any) the picker is currently open
+  // for, and the full store list to choose a destination from - not
+  // derived from `stores` above (StoreGroup[], only stores that already
+  // have items in the current cart) since a move destination can be any
+  // store, including one with nothing in the cart yet.
+  const [movingItem, setMovingItem] = useState<ConsolidatedItem | null>(null);
+  const [allStores, setAllStores] = useState<Store[]>([]);
+
+  useEffect(() => {
+    fetchStores()
+      .then(setAllStores)
+      .catch(() => {
+        /* non-critical - the move picker just shows fewer/no destination options if this fails */
+      });
+  }, []);
 
   useEffect(() => {
     Promise.all([fetchItems(), fetchAllStorePrices()])
@@ -157,6 +176,27 @@ export default function CartScreen({
     }
     setShowResetConfirm(true);
   }, []);
+
+  const handleRequestMove = useCallback((item: ConsolidatedItem) => {
+    setMovingItem(item);
+  }, []);
+
+  const handleSelectMoveStore = useCallback(
+    async (toStoreId: string) => {
+      const item = movingItem;
+      setMovingItem(null);
+      if (!item) return;
+      // No optimistic update here, unlike onIncrement/onPantryAdjust above -
+      // a move can merge into an existing row at the destination or detach
+      // a recipe-sourced row entirely (see CartService.moveCartItemToStore's
+      // doc comment), and replicating that merge/detach logic correctly on
+      // the frontend just to shave off one loadCart() round-trip isn't
+      // worth the risk of the two falling out of sync for a deliberate,
+      // infrequent action like this.
+      await onMoveItem(item.itemId, item.storeId, toStoreId);
+    },
+    [movingItem, onMoveItem]
+  );
 
   const handleConfirmReset = useCallback(() => {
     setShowResetConfirm(false);
@@ -230,8 +270,6 @@ export default function CartScreen({
     [itemsToBuy, stillAtHome]
   );
 
-  const snackFund = MONTHLY_BUDGET_LIMIT - grandTotal;
-
   const reconcilingCheckedItems = reconcilingStore
     ? reconcilingStore.items.filter((item) => item.isCheckedCheckout)
     : [];
@@ -246,19 +284,21 @@ export default function CartScreen({
           <NeumoInset borderRadius={neumo.radiusSm} style={styles.totalInset}>
             <Text style={styles.totalText}>Total ₱{formatCurrency(grandTotal)}</Text>
           </NeumoInset>
-          <Pressable onLongPress={handleMasterResetLongPress} delayLongPress={2000}>
-            <View style={styles.masterResetButton}>
-              <Text style={styles.masterResetButtonText}>Hold to Reset</Text>
-            </View>
+          <Pressable
+            onPress={() => {}}
+            onLongPress={handleMasterResetLongPress}
+            delayLongPress={2000}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            android_ripple={{ color: 'rgba(255,255,255,0.3)' }}
+            style={({ pressed }) => [styles.masterResetButton, pressed && styles.masterResetButtonPressed]}
+          >
+            <Text style={styles.masterResetButtonText}>Hold to Reset</Text>
           </Pressable>
         </View>
       </View>
 
-      <View style={styles.budgetRow}>
-        <Text style={[styles.snackFundText, snackFund < 0 && styles.snackFundTextNegative]}>
-          🍪 Snack fund: {snackFund >= 0 ? '+' : '-'}₱{formatCurrency(Math.abs(snackFund))} left this month
-        </Text>
-      </View>
+      {/* Snack fund removed per request - MONTHLY_BUDGET_LIMIT/budgetConfig.ts
+          left intact so this can come back easily later. */}
 
       {modeLoading ? (
         <ActivityIndicator size="small" color={neumo.accent} style={styles.modeLoadingIndicator} />
@@ -335,6 +375,7 @@ export default function CartScreen({
                   onSetPantryReason={onSetPantryReason}
                   onPantryTreasureFound={onPantryTreasureFound}
                   onToggleChecked={handleToggleCheckedAnimated}
+                  onRequestMove={handleRequestMove}
                 />
               );
             })}
@@ -349,6 +390,7 @@ export default function CartScreen({
                 onSetPantryReason={onSetPantryReason}
                 onPantryTreasureFound={onPantryTreasureFound}
                 onToggleChecked={handleToggleCheckedAnimated}
+                onRequestMove={handleRequestMove}
               />
             )}
           </>
@@ -369,6 +411,7 @@ export default function CartScreen({
                 onSetPantryReason={onSetPantryReason}
                 onPantryTreasureFound={onPantryTreasureFound}
                 onToggleChecked={handleToggleCheckedAnimated}
+                onRequestMove={handleRequestMove}
               />
             ))}
             {itemsToBuy.length === 0 && (
@@ -388,6 +431,7 @@ export default function CartScreen({
                 onSetPantryReason={onSetPantryReason}
                 onPantryTreasureFound={onPantryTreasureFound}
                 onToggleChecked={handleToggleCheckedAnimated}
+                onRequestMove={handleRequestMove}
               />
             ))}
             {stillAtHome.length === 0 && (
@@ -407,6 +451,7 @@ export default function CartScreen({
                 onSetPantryReason={onSetPantryReason}
                 onPantryTreasureFound={onPantryTreasureFound}
                 onToggleChecked={handleToggleCheckedAnimated}
+                onRequestMove={handleRequestMove}
               />
             ))}
             {excludedWithCatalog.length === 0 && (
@@ -429,6 +474,7 @@ export default function CartScreen({
                 onSetPantryReason={onSetPantryReason}
                 onPantryTreasureFound={onPantryTreasureFound}
                 onToggleChecked={handleToggleCheckedAnimated}
+                onRequestMove={handleRequestMove}
               />
             ))}
             {categoryGroups.length === 0 && (
@@ -444,10 +490,20 @@ export default function CartScreen({
               onSetPantryReason={onSetPantryReason}
               onPantryTreasureFound={onPantryTreasureFound}
               onToggleChecked={handleToggleCheckedAnimated}
+              onRequestMove={handleRequestMove}
             />
           </>
         )}
       </ScrollView>
+
+      <MoveToStoreModal
+        visible={movingItem !== null}
+        itemName={movingItem?.itemName ?? ''}
+        currentStoreId={movingItem?.storeId ?? ''}
+        stores={allStores}
+        onCancel={() => setMovingItem(null)}
+        onSelectStore={handleSelectMoveStore}
+      />
 
       <ReconciliationModal
         visible={reconcilingStore !== null}
@@ -504,22 +560,13 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
   },
+  masterResetButtonPressed: {
+    opacity: 0.6,
+  },
   masterResetButtonText: {
     ...neumoText.heading,
     fontSize: 11,
     color: '#FFFFFF',
-  },
-  budgetRow: {
-    paddingHorizontal: 12,
-    marginBottom: 8,
-  },
-  snackFundText: {
-    ...neumoText.subheading,
-    fontSize: 12,
-    color: '#3B6D11',
-  },
-  snackFundTextNegative: {
-    color: '#C0392B',
   },
   modeLoadingIndicator: {
     marginVertical: 8,

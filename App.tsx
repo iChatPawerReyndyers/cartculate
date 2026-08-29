@@ -16,12 +16,13 @@ import InsightsScreen from './src/screens/InsightsScreen';
 import ReceiptScannerScreen from './src/screens/ReceiptScannerScreen';
 import GroceryHistoryScreen from './src/screens/GroceryHistoryScreen';
 import LoginScreen from './src/screens/LoginScreen';
-import { fetchCart, adjustCartItem, setPantryOverride, setCheckoutStatus, masterResetCheckout, completeCheckout } from './src/api/cartApi';
+import TabIcon from './src/components/TabIcon';
+import { fetchCart, adjustCartItem, setPantryOverride, setCheckoutStatus, masterResetCheckout, completeCheckout, moveCartItem } from './src/api/cartApi';
 import { createPurchase } from './src/api/purchaseApi';
 import { CURRENT_USER_ID, setCurrentUserId } from './src/api/config';
 import { ApiError } from './src/api/httpClient';
 import { AuthUser } from './src/api/authApi';
-import { loadSession, saveSession, clearSession, StoredSession } from './src/utils/session';
+import { loadSession, saveSession, StoredSession } from './src/utils/session';
 import { adjustOthersQuantity } from './src/utils/cartLogic';
 import { CartRow, ManifestItem } from './src/types';
 
@@ -39,6 +40,12 @@ const TABS: Record<'CART' | 'RECIPES' | 'INSIGHTS' | 'SCAN' | 'HISTORY', TabKey>
   SCAN: 'scan',
   HISTORY: 'history',
 };
+
+// Single source of truth for the tab bar icon colors, so TabIcon's
+// `color` prop always matches styles.tabLabel/tabLabelActive below
+// instead of two separate hardcoded hex values silently drifting apart.
+const TAB_ICON_ACTIVE_COLOR = '#1A1A1A';
+const TAB_ICON_INACTIVE_COLOR = '#9A9A9A';
 
 // The bottom system nav (gesture bar or 3-button bar) rarely reports an
 // inset smaller than this on real devices, but on some Android
@@ -96,15 +103,6 @@ function AppContent() {
     setAuthUser({ userId: user.id, name: user.name, username: user.username });
   }, []);
 
-  const handleLogout = useCallback(async () => {
-    await clearSession();
-    setAuthUser(null);
-    // Reset cart state so the next login doesn't briefly show the
-    // previous user's data before loadCart() re-runs for the new session.
-    setCartRows([]);
-    setLoading(true);
-  }, []);
-
   const loadCart = useCallback(async () => {
     try {
       const rows = await fetchCart(CURRENT_USER_ID);
@@ -146,6 +144,24 @@ function AppContent() {
       } catch (err) {
         Alert.alert('Could not update cart', 'Please check your connection and try again.');
         loadCart(); // roll back to server state
+      }
+    },
+    [loadCart]
+  );
+
+  // No optimistic update, unlike the two handlers above - a move can
+  // merge into an existing row at the destination store or detach a
+  // recipe-sourced row entirely (see CartService.moveCartItemToStore's
+  // doc comment on the backend), and correctly replicating that
+  // merge/detach logic client-side isn't worth the risk of drifting out
+  // of sync for a deliberate, infrequent action - a brief refetch instead.
+  const handleMoveCartItem = useCallback(
+    async (itemId: string, fromStoreId: string, toStoreId: string) => {
+      try {
+        await moveCartItem(CURRENT_USER_ID, itemId, fromStoreId, toStoreId);
+        await loadCart();
+      } catch (err) {
+        Alert.alert('Could not move item', 'Please check your connection and try again.');
       }
     },
     [loadCart]
@@ -394,6 +410,7 @@ function AppContent() {
             onCompleteTrip={handleCompleteTrip}
             onAddItem={handleAddItem}
             onNavigateToScanner={() => setActiveTab(TABS.SCAN)}
+            onMoveItem={handleMoveCartItem}
           />
         )}
         {activeTab === TABS.RECIPES && (
@@ -402,7 +419,7 @@ function AppContent() {
         {activeTab === TABS.INSIGHTS && <InsightsScreen />}
         {activeTab === TABS.SCAN && <ReceiptScannerScreen />}
         {activeTab === TABS.HISTORY && (
-          <GroceryHistoryScreen userName={authUser.name} onLogout={handleLogout} />
+          <GroceryHistoryScreen userName={authUser.name} />
         )}
       </View>
 
@@ -411,6 +428,7 @@ function AppContent() {
           style={styles.tabButton}
           onPress={() => setActiveTab(TABS.CART)}
         >
+          <TabIcon name="cart" color={activeTab === TABS.CART ? TAB_ICON_ACTIVE_COLOR : TAB_ICON_INACTIVE_COLOR} />
           <Text style={[styles.tabLabel, activeTab === TABS.CART && styles.tabLabelActive]}>
             Cart
           </Text>
@@ -419,6 +437,7 @@ function AppContent() {
           style={styles.tabButton}
           onPress={() => setActiveTab(TABS.RECIPES)}
         >
+          <TabIcon name="recipes" color={activeTab === TABS.RECIPES ? TAB_ICON_ACTIVE_COLOR : TAB_ICON_INACTIVE_COLOR} />
           <Text style={[styles.tabLabel, activeTab === TABS.RECIPES && styles.tabLabelActive]}>
             Recipes
           </Text>
@@ -427,6 +446,7 @@ function AppContent() {
           style={styles.tabButton}
           onPress={() => setActiveTab(TABS.INSIGHTS)}
         >
+          <TabIcon name="insights" color={activeTab === TABS.INSIGHTS ? TAB_ICON_ACTIVE_COLOR : TAB_ICON_INACTIVE_COLOR} />
           <Text style={[styles.tabLabel, activeTab === TABS.INSIGHTS && styles.tabLabelActive]}>
             Insights
           </Text>
@@ -435,6 +455,7 @@ function AppContent() {
           style={styles.tabButton}
           onPress={() => setActiveTab(TABS.SCAN)}
         >
+          <TabIcon name="pricing" color={activeTab === TABS.SCAN ? TAB_ICON_ACTIVE_COLOR : TAB_ICON_INACTIVE_COLOR} />
           <Text style={[styles.tabLabel, activeTab === TABS.SCAN && styles.tabLabelActive]}>
             Pricing
           </Text>
@@ -443,6 +464,7 @@ function AppContent() {
           style={styles.tabButton}
           onPress={() => setActiveTab(TABS.HISTORY)}
         >
+          <TabIcon name="history" color={activeTab === TABS.HISTORY ? TAB_ICON_ACTIVE_COLOR : TAB_ICON_INACTIVE_COLOR} />
           <Text style={[styles.tabLabel, activeTab === TABS.HISTORY && styles.tabLabelActive]}>
             History
           </Text>
@@ -500,13 +522,14 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: 12,
+    gap: 3,
   },
   tabLabel: {
     fontSize: 13,
-    color: '#9A9A9A',
+    color: TAB_ICON_INACTIVE_COLOR,
   },
   tabLabelActive: {
-    color: '#1A1A1A',
+    color: TAB_ICON_ACTIVE_COLOR,
     fontWeight: '500',
   },
 });

@@ -12,7 +12,7 @@ export default function PurchaseFrequencyCard({ stats }: PurchaseFrequencyCardPr
   if (!stats) return null;
 
   return (
-    <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
+    <NeumoRaised fullWidth style={styles.cardInner}>
       <Text style={styles.title}>📊 {stats.itemName} buying habits</Text>
       <View style={styles.row}>
         <NeumoInset borderRadius={10} style={styles.statBlockInset}>

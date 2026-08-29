@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import CartItem from './CartItem';
-import { StoreGroup, UserMode } from '../types';
+import { StoreGroup, UserMode, ConsolidatedItem } from '../types';
 import { calculateGrandTotal } from '../utils/cartLogic';
 import { formatCurrency } from '../utils/inputSanitization';
 import { neumo, neumoText, NeumoRaised, NeumoInset } from '../utils/neumorphic';
@@ -19,6 +19,7 @@ interface StoreSectionProps {
   onSetPantryReason: (rowId: string, reason: string | null) => void;
   onPantryTreasureFound: (rowId: string, reason: string) => void;
   onToggleChecked: (rowId: string, checked: boolean) => void;
+  onRequestMove: (item: ConsolidatedItem) => void;
 }
 
 /**
@@ -40,6 +41,7 @@ export default function StoreSection({
   onSetPantryReason,
   onPantryTreasureFound,
   onToggleChecked,
+  onRequestMove,
 }: StoreSectionProps) {
   const displayItems = useMemo(() => {
     if (!isStarted) return store.items;
@@ -84,6 +86,7 @@ export default function StoreSection({
           onSetPantryReason={onSetPantryReason}
           onPantryTreasureFound={onPantryTreasureFound}
           onToggleChecked={onToggleChecked}
+          onRequestMove={onRequestMove}
         />
       ))}
     </View>

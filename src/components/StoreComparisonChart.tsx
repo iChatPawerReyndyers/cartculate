@@ -14,7 +14,7 @@ export default function StoreComparisonChart({ totals }: StoreComparisonChartPro
   const bars = totals.map((t) => ({ key: t.storeId, label: t.storeName, value: t.totalSpent }));
 
   return (
-    <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
+    <NeumoRaised fullWidth style={styles.cardInner}>
       <Text style={styles.title}>Store spending comparison</Text>
       <NeumoBarChart data={bars} formatValue={(v) => `₱${formatCurrency(v)}`} />
     </NeumoRaised>

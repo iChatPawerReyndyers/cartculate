@@ -23,7 +23,7 @@ export default function PriceTrendChart({ itemName, points }: PriceTrendChartPro
   ];
 
   return (
-    <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
+    <NeumoRaised fullWidth style={styles.cardInner}>
       <Text style={styles.title}>{itemName} price trend</Text>
       <NeumoLineChart labels={points.map((p) => p.monthLabel)} series={series} showLegend={false} />
     </NeumoRaised>

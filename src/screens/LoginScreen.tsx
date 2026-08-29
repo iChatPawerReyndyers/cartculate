@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { login, signup, AuthUser } from '../api/authApi';
 import { ApiError } from '../api/httpClient';
+import { ENABLE_MOCK_FALLBACK } from '../api/config';
 import { neumo, neumoText, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
 
 interface LoginScreenProps {
@@ -20,6 +21,17 @@ interface LoginScreenProps {
 
 type AuthMode = 'login' | 'signup';
 
+// Matches userId '1' used throughout mockPurchaseHistory.ts /
+// mockStoreData.ts / mockItemData.ts, so a test-mode login lines up with
+// whichever mock user the rest of the app's fallback data already assumes.
+const LOCAL_TEST_MODE_USER: AuthUser = {
+  id: '1',
+  name: 'Test User',
+  email: 'test@local',
+  username: 'test',
+  currentMode: 'HOME',
+};
+
 /**
  * Gates the whole app - App.tsx renders this instead of the tab bar until
  * onAuthenticated fires, per the "ask username and password only" request.
@@ -27,6 +39,17 @@ type AuthMode = 'login' | 'signup';
  * form since there was previously no way to create a user account at all
  * (see AuthController.java's javadoc) - the login form itself stays
  * exactly username + password.
+ *
+ * TEST/LOCAL MODE BYPASS: submitting the login form completely blank
+ * (both fields empty) while the backend is genuinely unreachable logs
+ * straight in as a local mock user, instead of blocking on real
+ * credentials - see handleSubmit below. Gated on ENABLE_MOCK_FALLBACK
+ * (config.ts), same flag the rest of the app's mock-data fallback uses,
+ * so it's one switch to turn off before anything resembling a real test.
+ * Only triggers on a genuine network failure (ApiError status 0) with
+ * BOTH fields blank - a reachable backend rejecting blank credentials
+ * (or a partially-filled form) still shows the normal error, so this
+ * never masks an actual wrong-password situation.
  */
 export default function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   const insets = useSafeAreaInsets();
@@ -53,7 +76,12 @@ export default function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   async function handleSubmit() {
     setErrorMessage(null);
 
-    if (username.trim().length === 0 || password.length === 0) {
+    const isBlankLoginAttempt = mode === 'login' && username.trim().length === 0 && password.length === 0;
+
+    // A partially-filled form is always a mistake worth catching locally,
+    // no network round-trip needed. A FULLY blank login attempt is let
+    // through instead - see the try/catch below for why.
+    if (!isBlankLoginAttempt && (username.trim().length === 0 || password.length === 0)) {
       setErrorMessage('Enter a username and password.');
       return;
     }
@@ -74,7 +102,25 @@ export default function LoginScreen({ onAuthenticated }: LoginScreenProps) {
           : await signup(name.trim(), username.trim(), password);
       onAuthenticated(user);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
+      // Test/local mode bypass: a completely blank login form is only
+      // ever a deliberate "let me in without typing anything" attempt,
+      // never a real credential guess - and status 0 means the backend
+      // genuinely can't be reached (not a real rejection of blank
+      // credentials from a running server). Skip past the login screen
+      // using a local mock identity, same one the rest of the app's
+      // mock-data fallback already assumes (see mockPurchaseHistory.ts /
+      // mockStoreData.ts's userId '1').
+      if (isBlankLoginAttempt && ENABLE_MOCK_FALLBACK && err instanceof ApiError && err.status === 0) {
+        onAuthenticated(LOCAL_TEST_MODE_USER);
+        return;
+      }
+      // Backend IS reachable (or mock fallback is off) and rejected the
+      // blank submission normally - keep the original helpful message
+      // instead of "Incorrect username or password" or a raw validation
+      // error, since the person didn't actually attempt real credentials.
+      if (isBlankLoginAttempt) {
+        setErrorMessage('Enter a username and password.');
+      } else if (err instanceof ApiError && err.status === 401) {
         setErrorMessage('Incorrect username or password.');
       } else if (err instanceof ApiError && err.status === 409) {
         setErrorMessage('That username is already taken.');

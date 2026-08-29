@@ -12,23 +12,8 @@ function formatDate(isoDate: string): string {
   return date.toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/** The small "name ... Log out" row, now scoped to just this screen - see the file header comment for why it moved here. */
-function ScreenHeader({ userName, onLogout }: { userName: string; onLogout: () => void }) {
-  return (
-    <View style={styles.accountRow}>
-      <Text style={styles.accountText} numberOfLines={1}>
-        {userName}
-      </Text>
-      <TouchableOpacity onPress={onLogout}>
-        <Text style={styles.logoutLink}>Log out</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 interface GroceryHistoryScreenProps {
   userName: string;
-  onLogout: () => void;
 }
 
 /**
@@ -36,14 +21,12 @@ interface GroceryHistoryScreenProps {
  * each receipt is a full-width raised card, and the Retry button on error
  * is a raised accent pill. Logic unchanged in this pass.
  *
- * The account row (name + Log out) used to live globally in App.tsx above
- * every tab - moved here per request, so it only shows on the tab it's
- * actually relevant to, styled as this screen's own small header
- * navigator sitting right above the "Grocery History" title rather than
- * floating over the whole app. App.tsx now passes userName/onLogout in as
- * props instead of owning this row itself.
+ * The account row (name + Log out) that used to sit above the title here
+ * is gone - logout capability removed per request. The username now just
+ * folds directly into the title itself ("Grocery History(name)") instead
+ * of its own separate row.
  */
-export default function GroceryHistoryScreen({ userName, onLogout }: GroceryHistoryScreenProps) {
+export default function GroceryHistoryScreen({ userName }: GroceryHistoryScreenProps) {
   const [receipts, setReceipts] = useState<PurchaseReceipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -74,7 +57,6 @@ export default function GroceryHistoryScreen({ userName, onLogout }: GroceryHist
   if (loading) {
     return (
       <View style={styles.safeArea}>
-        <ScreenHeader userName={userName} onLogout={onLogout} />
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color={neumo.accent} />
         </View>
@@ -85,7 +67,6 @@ export default function GroceryHistoryScreen({ userName, onLogout }: GroceryHist
   if (loadError) {
     return (
       <View style={styles.safeArea}>
-        <ScreenHeader userName={userName} onLogout={onLogout} />
         <View style={styles.centerContent}>
           <Text style={styles.errorText}>{loadError}</Text>
           <TouchableOpacity onPress={loadHistory}>
@@ -100,9 +81,8 @@ export default function GroceryHistoryScreen({ userName, onLogout }: GroceryHist
 
   return (
     <View style={styles.safeArea}>
-      <ScreenHeader userName={userName} onLogout={onLogout} />
       <View style={styles.header}>
-        <Text style={styles.title}>Grocery History</Text>
+        <Text style={styles.title}>Grocery History({userName})</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -114,7 +94,7 @@ export default function GroceryHistoryScreen({ userName, onLogout }: GroceryHist
               activeOpacity={0.7}
               onPress={() => setExpandedId(isExpanded ? null : receipt.id)}
             >
-              <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
+              <NeumoRaised fullWidth style={styles.cardInner}>
                 <View style={styles.cardHeader}>
                   <Text style={styles.storeName}>{receipt.storeName}</Text>
                   <Text style={styles.total}>₱{formatCurrency(receipt.totalReceiptSpent)}</Text>
@@ -159,25 +139,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: neumo.background,
-  },
-  accountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 6,
-    paddingBottom: 2,
-  },
-  accountText: {
-    fontSize: 11,
-    color: '#8891A5',
-    flexShrink: 1,
-  },
-  logoutLink: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#8891A5',
-    textDecorationLine: 'underline',
   },
   centerContent: {
     flex: 1,

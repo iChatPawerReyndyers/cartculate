@@ -20,7 +20,7 @@ export default function MonthlySpendingChart({ data }: MonthlySpendingChartProps
   }));
 
   return (
-    <NeumoRaised distance={4} fullWidth style={styles.cardInner}>
+    <NeumoRaised fullWidth style={styles.cardInner}>
       <Text style={styles.title}>Monthly spending by store</Text>
       <NeumoLineChart labels={data.labels} series={series} />
     </NeumoRaised>

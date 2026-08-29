@@ -154,7 +154,11 @@ export default function NewRecipeModal({
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
       <View style={styles.overlay}>
         <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
-          <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.formScroll}
+            contentContainerStyle={styles.formScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
             <Text style={styles.title}>{mode === 'add' ? 'New recipe' : 'Edit recipe'}</Text>
 
             <Text style={styles.label}>Recipe name</Text>
@@ -168,7 +172,7 @@ export default function NewRecipeModal({
               />
             </NeumoInset>
 
-            <Text style={styles.label}>Ingredients</Text>
+            <Text style={[styles.label, styles.ingredientsLabel]}>Ingredients</Text>
             {rows.map((row) => (
               <NeumoRaised key={row.key} borderRadius={12} distance={4} style={styles.ingredientCardInner} fullWidth>
                 <View style={styles.ingredientRow}>
@@ -218,31 +222,34 @@ export default function NewRecipeModal({
                   </TouchableOpacity>
                 </View>
 
-                <View style={styles.storeRoutingRow}>
-                  <Text style={styles.storeRoutingLabel}>Store:</Text>
+                <View style={styles.secondaryRow}>
                   <View style={styles.storePickerWrap}>
                     <SelectField
                       value={row.targetStoreId}
                       options={[
-                        { label: 'Default (auto)', value: AUTO_STORE_VALUE },
+                        { label: 'Default store (auto)', value: AUTO_STORE_VALUE },
                         ...stores.map((store) => ({ label: store.name, value: store.id })),
                       ]}
                       sheetTitle="Store"
                       onChange={(targetStoreId) => updateRow(row.key, { targetStoreId })}
                     />
                   </View>
-                </View>
 
-                <TouchableOpacity
-                  style={styles.optionalRow}
-                  onPress={() => updateRow(row.key, { isOptional: !row.isOptional })}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.optionalCheckbox, row.isOptional && styles.optionalCheckboxChecked]}>
-                    {row.isOptional && <Text style={styles.optionalCheckmark}>✓</Text>}
-                  </View>
-                  <Text style={styles.optionalLabel}>Optional ingredient (e.g. garnish, can skip)</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.optionalToggle}
+                    onPress={() => updateRow(row.key, { isOptional: !row.isOptional })}
+                    activeOpacity={0.7}
+                  >
+                    {row.isOptional ? (
+                      <NeumoAccentRaised borderRadius={4} distance={2} style={styles.optionalCheckbox}>
+                        <Text style={styles.optionalCheckmark}>✓</Text>
+                      </NeumoAccentRaised>
+                    ) : (
+                      <NeumoInset borderRadius={4} style={styles.optionalCheckbox} />
+                    )}
+                    <Text style={styles.optionalLabel}>Optional</Text>
+                  </TouchableOpacity>
+                </View>
               </NeumoRaised>
             ))}
 
@@ -313,8 +320,28 @@ const styles = StyleSheet.create({
    * content actually overflows - which is exactly what "leave room for
    * the pinned buttonRow, but don't collapse otherwise" means.
    */
+  /**
+   * BUGFIX (shadow clipping): ScrollView clips its OWN content to its OWN
+   * bounds - `sheet`'s padding:20 lives outside this ScrollView, so it
+   * gave the title/name field/buttonRow breathing room but did nothing
+   * for anything scrolling inside here. Full-width ingredient cards sat
+   * flush against this ScrollView's own clip edge with zero slack, so
+   * their boxShadow got hard-cut on the left/right sides instead of
+   * fading - unlike CartScreen's list, which puts its horizontal padding
+   * directly on the ScrollView's own contentContainerStyle for exactly
+   * this reason. marginHorizontal here is negative, and
+   * formScrollContent's paddingHorizontal is the same magnitude
+   * positive - together they widen this ScrollView's own clip boundary
+   * by 10px on each side (room for the shadow) while net content
+   * position stays exactly where it was, still aligned with the
+   * title/name field above.
+   */
   formScroll: {
     flexShrink: 1,
+    marginHorizontal: -10,
+  },
+  formScrollContent: {
+    paddingHorizontal: 10,
   },
   title: {
     ...neumoText.heading,
@@ -326,6 +353,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 4,
   },
+  ingredientsLabel: {
+    marginBottom: 10,
+  },
   nameInsetWrap: {
     marginBottom: 16,
   },
@@ -336,8 +366,9 @@ const styles = StyleSheet.create({
     color: neumo.textPrimary,
   },
   ingredientCardInner: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
     marginBottom: 10,
   },
   ingredientRow: {
@@ -353,8 +384,8 @@ const styles = StyleSheet.create({
   },
   qtyInput: {
     textAlign: 'center',
-    fontSize: 13,
-    paddingVertical: 6,
+    fontSize: 14,
+    paddingVertical: 10,
     color: neumo.textPrimary,
   },
   unitPickerWrap: {
@@ -365,8 +396,8 @@ const styles = StyleSheet.create({
   },
   unitInput: {
     textAlign: 'center',
-    fontSize: 13,
-    paddingVertical: 6,
+    fontSize: 14,
+    paddingVertical: 10,
     color: neumo.textPrimary,
   },
   removeButtonInner: {
@@ -379,39 +410,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: neumo.textSecondary,
   },
-  storeRoutingRow: {
+  secondaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingTop: 6,
-    marginBottom: 6,
-  },
-  storeRoutingLabel: {
-    ...neumoText.caption,
-    fontSize: 11,
-    color: neumo.textMuted,
+    gap: 10,
+    paddingTop: 8,
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(120,129,150,0.18)',
   },
   storePickerWrap: {
     flex: 1,
   },
-  optionalRow: {
+  optionalToggle: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingBottom: 6,
+    gap: 5,
+    paddingVertical: 6,
   },
   optionalCheckbox: {
     width: 16,
     height: 16,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: neumo.shadowDark,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  optionalCheckboxChecked: {
-    backgroundColor: neumo.accent,
-    borderColor: neumo.accentDark,
   },
   optionalCheckmark: {
     fontSize: 10,

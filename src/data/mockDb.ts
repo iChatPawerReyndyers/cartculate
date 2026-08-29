@@ -614,6 +614,44 @@ export function dbAdjustCartItem(itemId: string, storeId: string, delta: number)
   db.cartRows[primaryIdx].quantity = Math.max(0, db.cartRows[primaryIdx].quantity + delta);
 }
 
+/**
+ * Mirrors the backend's CartService.moveCartItemToStore() exactly - see
+ * that method's doc comment for the full reasoning (why source gets
+ * stripped, the one-time-override caveat, and the merge-into-existing-
+ * Others-row behavior). Used for the long-press "move to a different
+ * store" action.
+ */
+export function dbMoveCartItem(itemId: string, fromStoreId: string, toStoreId: string): void {
+  const rowsAtFromStore = db.cartRows.filter((r) => r.itemId === itemId && r.storeId === fromStoreId);
+  if (rowsAtFromStore.length === 0) return;
+
+  const totalQty = rowsAtFromStore.reduce((sum, r) => sum + r.quantity, 0);
+  const fromStoreRowIds = new Set(rowsAtFromStore.map((r) => r.id));
+
+  const existingAtToStore = db.cartRows.find(
+    (r) => r.itemId === itemId && r.storeId === toStoreId && !r.sourceRecipeId
+  );
+
+  if (existingAtToStore) {
+    existingAtToStore.quantity += totalQty;
+    db.cartRows = db.cartRows.filter((r) => !fromStoreRowIds.has(r.id));
+    return;
+  }
+
+  const toStore = dbFindStore(toStoreId);
+  const primary = rowsAtFromStore[0];
+  primary.storeId = toStoreId;
+  primary.storeName = toStore?.name ?? primary.storeName;
+  primary.sourceRecipeId = null;
+  primary.sourceRecipeName = null;
+  primary.quantity = totalQty;
+
+  if (rowsAtFromStore.length > 1) {
+    const extraRowIds = new Set(rowsAtFromStore.slice(1).map((r) => r.id));
+    db.cartRows = db.cartRows.filter((r) => !extraRowIds.has(r.id));
+  }
+}
+
 export function dbSetPantryOverride(cartItemId: string, overridePantryQty: number, overrideReason: string | null): CartRow {
   const row = db.cartRows.find((r) => r.id === cartItemId);
   if (!row) throw new Error(`mockDb: cart row ${cartItemId} not found`);

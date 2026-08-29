@@ -15,6 +15,8 @@ interface CartItemProps {
   onPantryTreasureFound: (rowId: string, reason: string) => void;
   onToggleChecked: (rowId: string, checked: boolean) => void;
   showStoreName?: boolean;
+  /** Long-pressing the item name opens a "move to a different store" picker - e.g. "only need one thing from Puregold, might as well get it at S&R instead." Optional so callers that don't wire it up (none currently) simply don't get the long-press behavior. */
+  onRequestMove?: (item: ConsolidatedItem) => void;
 }
 
 /**
@@ -35,6 +37,7 @@ export default function CartItem({
   onPantryTreasureFound,
   onToggleChecked,
   showStoreName = false,
+  onRequestMove,
 }: CartItemProps) {
   const [expanded, setExpanded] = useState(false);
   const [reasonPickerRowId, setReasonPickerRowId] = useState<string | null>(null);
@@ -97,7 +100,7 @@ export default function CartItem({
   };
 
   return (
-    <NeumoRaised style={styles.cardInner} distance={5} fullWidth>
+    <NeumoRaised style={styles.cardInner} fullWidth>
       <View style={styles.row}>
         {mode === 'AWAY' && item.primaryRowId && (
           <TouchableOpacity
@@ -106,9 +109,9 @@ export default function CartItem({
             activeOpacity={0.7}
           >
             {item.isCheckedCheckout ? (
-              <View style={styles.checkboxChecked}>
+              <NeumoAccentRaised borderRadius={6} distance={3} style={styles.checkboxChecked}>
                 <Text style={styles.checkmark}>✓</Text>
-              </View>
+              </NeumoAccentRaised>
             ) : (
               <NeumoInset borderRadius={6} style={styles.checkboxInset} />
             )}
@@ -119,7 +122,9 @@ export default function CartItem({
           style={styles.nameSection}
           activeOpacity={canExpand ? 0.6 : 1}
           onPress={() => canExpand && setExpanded((e) => !e)}
-          disabled={!canExpand}
+          onLongPress={onRequestMove ? () => onRequestMove(item) : undefined}
+          delayLongPress={500}
+          disabled={!canExpand && !onRequestMove}
         >
           <View style={styles.nameRow}>
             <Text style={styles.itemName}>
@@ -363,8 +368,6 @@ const styles = StyleSheet.create({
   checkboxChecked: {
     width: 20,
     height: 20,
-    borderRadius: 6,
-    backgroundColor: neumo.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },

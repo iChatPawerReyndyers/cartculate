@@ -1,6 +1,6 @@
 import { apiRequest, withMockFallback } from './httpClient';
 import { mockCartRows } from '../data/mockCartData';
-import { dbCompleteCheckout } from '../data/mockDb';
+import { dbCompleteCheckout, dbMoveCartItem } from '../data/mockDb';
 import { CartRow } from '../types';
 
 // Raw shape returned by the backend: numeric fields arrive as
@@ -55,6 +55,38 @@ export async function adjustCartItem(
         /* expectJson */ false
       ),
     undefined // no-op in mock mode - the UI's optimistic update already reflects the change
+  );
+}
+
+/**
+ * PATCH /api/users/{userId}/cart/move - long-press an item's card to
+ * relocate it to a different store (e.g. "only need one thing from
+ * Puregold, might as well get it at S&R instead"). See
+ * CartService.moveCartItemToStore() on the backend for the full
+ * reasoning, including why this is a one-time override rather than a
+ * permanent reroute of a recipe ingredient's own routing.
+ */
+export async function moveCartItem(
+  userId: number,
+  itemId: string,
+  fromStoreId: string,
+  toStoreId: string
+): Promise<void> {
+  return withMockFallback(
+    () =>
+      apiRequest<void>(
+        `/api/users/${userId}/cart/move`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            itemId: Number(itemId),
+            fromStoreId: Number(fromStoreId),
+            toStoreId: Number(toStoreId),
+          }),
+        },
+        /* expectJson */ false
+      ),
+    () => dbMoveCartItem(itemId, fromStoreId, toStoreId)
   );
 }
 

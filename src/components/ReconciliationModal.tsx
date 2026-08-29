@@ -183,7 +183,7 @@ export default function ReconciliationModal({
           </NeumoInset>
 
           {isCartWizard && (
-            <NeumoRaised borderRadius={14} distance={4} fullWidth style={styles.wizardCardInner}>
+            <NeumoRaised borderRadius={14} fullWidth style={styles.wizardCardInner}>
               <Text style={styles.wizardTitle}>🏆 Cart Wizard!</Text>
               <Text style={styles.wizardText}>
                 Your estimate landed within 5% of the receipt. Nicely called.
@@ -192,7 +192,7 @@ export default function ReconciliationModal({
           )}
 
           {showPriceEditor && (
-            <NeumoRaised borderRadius={14} distance={4} fullWidth style={styles.varianceCardInner}>
+            <NeumoRaised borderRadius={14} fullWidth style={styles.varianceCardInner}>
               <Text style={styles.varianceTitle}>Price variance detected</Text>
               <Text style={styles.varianceText}>
                 Receipt is ₱{formatCurrency(Math.abs(variance!.amount))}{' '}
