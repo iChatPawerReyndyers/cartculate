@@ -11,9 +11,9 @@ import { Platform } from 'react-native';
 //
 // Port 8888 matches server.port in the backend's application.properties.
 export const API_BASE_URL = Platform.select({
-  ios: 'http://localhost:8888',
-  android: 'http://10.0.2.2:8888',
-  default: 'http://localhost:8888',
+  ios: 'https://cartculate-be.onrender.com',
+  android: 'https://cartculate-be.onrender.com',
+  default: 'https://cartculate-be.onrender.com',
 });
 
 // Was a hardcoded literal before login existed (see the old TODO here).
@@ -38,4 +38,4 @@ export function setCurrentUserId(userId: number): void {
 // Set this to false before anything resembling a real test of backend
 // behavior - it exists purely so the app doesn't go blank when the
 // backend is off, not as a substitute for testing against the real API.
-export const ENABLE_MOCK_FALLBACK = true;
+export const ENABLE_MOCK_FALLBACK = false;
