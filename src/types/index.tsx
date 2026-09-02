@@ -156,6 +156,8 @@ export interface RecipeIngredient {
   isCustomRouted: boolean;
   /** True if this ingredient is optional (garnish, skippable spice, etc.) - excluded from Feature 2's "recipe needs this much" floor. */
   isOptional: boolean;
+  /** True if this ingredient's quantity currently syncs to the Cart tab whenever the recipe's multiplier changes. */
+  addToCart: boolean;
 }
 
 /** An ingredient after scaleIngredients() has applied the recipe's scale factor. */

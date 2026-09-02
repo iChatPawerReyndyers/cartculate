@@ -24,6 +24,7 @@ import { ApiError } from './src/api/httpClient';
 import { AuthUser } from './src/api/authApi';
 import { loadSession, saveSession, StoredSession } from './src/utils/session';
 import { adjustOthersQuantity } from './src/utils/cartLogic';
+import { cachedFetch, CACHE_KEYS } from './src/utils/cache';
 import { CartRow, ManifestItem } from './src/types';
 
 // Cart state lives here so both tabs can read/write it. On mount it's
@@ -104,13 +105,26 @@ function AppContent() {
   }, []);
 
   const loadCart = useCallback(async () => {
+    let usedCache = false;
     try {
-      const rows = await fetchCart(CURRENT_USER_ID);
+      const rows = await cachedFetch(CACHE_KEYS.cart(CURRENT_USER_ID), () => fetchCart(CURRENT_USER_ID), (cached) => {
+        // Cached cart is enough to render immediately - drop the spinner
+        // right away instead of waiting on the network, same
+        // stale-while-revalidate pattern as RecipeScreen/PriceCatalogView.
+        usedCache = true;
+        setCartRows(cached);
+        setLoading(false);
+      });
       setCartRows(rows);
       setLoadError(null);
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Failed to load cart.';
-      setLoadError(message);
+      // Don't hide an already-visible cached cart behind the full-screen
+      // error state - only a true first-load (nothing cached yet) blocks
+      // on this, same as the other two screens.
+      if (!usedCache) {
+        const message = err instanceof ApiError ? err.message : 'Failed to load cart.';
+        setLoadError(message);
+      }
     } finally {
       setLoading(false);
     }

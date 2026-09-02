@@ -435,6 +435,7 @@ interface IngredientInput {
   baseQuantity: number;
   unit: string | null;
   isOptional?: boolean;
+  addToCart?: boolean;
 }
 
 function buildRecipeIngredient(input: IngredientInput): RecipeIngredient {
@@ -451,6 +452,7 @@ function buildRecipeIngredient(input: IngredientInput): RecipeIngredient {
     defaultPrice: priceEntry?.priceAmount ?? 0,
     isCustomRouted: false,
     isOptional: input.isOptional ?? false,
+    addToCart: input.addToCart ?? true,
   };
 }
 
@@ -514,6 +516,7 @@ function syncCartForRecipe(recipe: Recipe): void {
   if (recipe.currentMultiplier <= 0) return;
 
   for (const ing of recipe.ingredients) {
+    if (!ing.addToCart) continue; // opted out - matches RecipeService.updateMultiplier's addToCart check on the real backend
     const scaledQty = Math.round(ing.baseQuantity * recipe.currentMultiplier * 100) / 100;
     if (scaledQty <= 0) continue;
     const carryOver = previousRows.find((r) => r.itemId === ing.itemId && r.storeId === ing.defaultStoreId);

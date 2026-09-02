@@ -7,9 +7,28 @@ import { RecipeIngredientInput } from '../api/recipeApi';
 import { sanitizeDecimalInput, sanitizeIntegerInput, isValidPositiveNumber } from '../utils/inputSanitization';
 import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
 import SelectField from './SelectField';
-import { UNIT_MAX_LENGTH } from '../utils/units';
+import IngredientPickerModal from './IngredientPickerModal';
+import { mergeCategories } from '../utils/categories';
+import { UNIT_OPTIONS, UNIT_MAX_LENGTH } from '../utils/units';
 
 const AUTO_STORE_VALUE = '__auto__';
+const NO_UNIT_VALUE = '__no_unit__';
+const ADD_NEW_UNIT_VALUE = '__add_new_unit__';
+
+/** Maps a row's raw `unit` value to the SelectField option it corresponds
+ * to - null (countable item, e.g. "2 carrots") gets its own option since
+ * it isn't just "no selection yet", it's a meaningful, saved choice. */
+function unitPickerValueFor(unit: string | null): string {
+  if (unit === null) return NO_UNIT_VALUE;
+  if (UNIT_OPTIONS.includes(unit)) return unit;
+  return ADD_NEW_UNIT_VALUE;
+}
+
+const unitOptions = [
+  { label: 'No unit (count)', value: NO_UNIT_VALUE },
+  ...UNIT_OPTIONS.map((u) => ({ label: u, value: u })),
+  { label: '+ Add custom unit...', value: ADD_NEW_UNIT_VALUE },
+];
 
 interface IngredientRow {
   key: string;
@@ -18,6 +37,7 @@ interface IngredientRow {
   unit: string | null;
   targetStoreId: string;
   isOptional: boolean;
+  addToCart: boolean;
 }
 
 interface NewRecipeModalProps {
@@ -29,6 +49,10 @@ interface NewRecipeModalProps {
   onCancel: () => void;
   onSave: (name: string, ingredients: RecipeIngredientInput[]) => void;
   isSaving: boolean;
+  /** Bubbles a product created via the ingredient picker's "+ Add new
+   * product" form up to the parent, so its items list is updated without
+   * a full refetch. */
+  onItemCreated: (item: Item) => void;
 }
 
 function makeEmptyRow(defaultItemId: string): IngredientRow {
@@ -39,6 +63,7 @@ function makeEmptyRow(defaultItemId: string): IngredientRow {
     unit: null,
     targetStoreId: AUTO_STORE_VALUE,
     isOptional: false,
+    addToCart: true,
   };
 }
 
@@ -64,10 +89,14 @@ export default function NewRecipeModal({
   onCancel,
   onSave,
   isSaving,
+  onItemCreated,
 }: NewRecipeModalProps) {
   const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [rows, setRows] = useState<IngredientRow[]>([]);
+  const [pickerRowKey, setPickerRowKey] = useState<string | null>(null);
+
+  const categories = useMemo(() => mergeCategories(items.map((i) => i.category)), [items]);
 
   const ingredientItems = useMemo(
     () =>
@@ -92,6 +121,7 @@ export default function NewRecipeModal({
           unit: ing.unit,
           targetStoreId: ing.isCustomRouted ? ing.defaultStoreId : AUTO_STORE_VALUE,
           isOptional: ing.isOptional,
+          addToCart: ing.addToCart,
         }))
       );
     } else {
@@ -137,13 +167,15 @@ export default function NewRecipeModal({
       }
       const quantity = parseFloat(row.quantityText);
       const item = items.find((i) => i.id === row.itemId);
+      const normalizedUnit = row.unit && row.unit.trim().length > 0 ? row.unit.trim() : null;
       ingredients.push({
         itemId: row.itemId,
         itemName: item?.name ?? 'Unknown item',
         baseQuantity: quantity,
-        unit: row.unit,
+        unit: normalizedUnit,
         targetStoreId: row.targetStoreId === AUTO_STORE_VALUE ? null : row.targetStoreId,
         isOptional: row.isOptional,
+        addToCart: row.addToCart,
       });
     }
 
@@ -151,135 +183,183 @@ export default function NewRecipeModal({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
-      <View style={styles.overlay}>
-        <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
-          <ScrollView
-            style={styles.formScroll}
-            contentContainerStyle={styles.formScrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={styles.title}>{mode === 'add' ? 'New recipe' : 'Edit recipe'}</Text>
+    <>
+        <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
+        <View style={styles.overlay}>
+          <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
+            <ScrollView
+              style={styles.formScroll}
+              contentContainerStyle={styles.formScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.title}>{mode === 'add' ? 'New recipe' : 'Edit recipe'}</Text>
 
-            <Text style={styles.label}>Recipe name</Text>
-            <NeumoInset borderRadius={neumo.radiusSm} style={styles.nameInsetWrap}>
-              <TextInput
-                style={styles.nameInput}
-                value={name}
-                onChangeText={setName}
-                placeholder="e.g. Sinigang"
-                placeholderTextColor={neumo.textMuted}
-              />
-            </NeumoInset>
+              <Text style={styles.label}>Recipe name</Text>
+              <NeumoInset borderRadius={neumo.radiusSm} style={styles.nameInsetWrap}>
+                <TextInput
+                  style={styles.nameInput}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="e.g. Sinigang"
+                  placeholderTextColor={neumo.textMuted}
+                />
+              </NeumoInset>
 
-            <Text style={[styles.label, styles.ingredientsLabel]}>Ingredients</Text>
-            {rows.map((row) => (
-              <NeumoRaised key={row.key} borderRadius={12} distance={4} style={styles.ingredientCardInner} fullWidth>
-                <View style={styles.ingredientRow}>
-                  <View style={styles.itemPickerWrap}>
-                    <SelectField
-                      value={row.itemId}
-                      options={ingredientItems.map((item) => ({ label: item.name, value: item.id }))}
-                      sheetTitle="Ingredient"
-                      onChange={(itemId) => updateRow(row.key, { itemId })}
-                    />
+              <Text style={[styles.label, styles.ingredientsLabel]}>Ingredients</Text>
+              {rows.map((row) => (
+                <NeumoRaised key={row.key} borderRadius={12} distance={4} style={styles.ingredientCardInner} fullWidth>
+                  <View style={styles.ingredientRow}>
+                    <TouchableOpacity
+                      style={styles.itemPickerWrap}
+                      onPress={() => setPickerRowKey(row.key)}
+                      activeOpacity={0.7}
+                    >
+                      <NeumoInset borderRadius={neumo.radiusSm} style={styles.itemFieldInset}>
+                        <Text style={styles.itemFieldText} numberOfLines={1}>
+                          {items.find((i) => i.id === row.itemId)?.name ?? 'Select ingredient'}
+                        </Text>
+                        <Text style={styles.itemFieldChevron}>▾</Text>
+                      </NeumoInset>
+                    </TouchableOpacity>
+
+                    <NeumoInset borderRadius={6} style={styles.qtyInsetWrap}>
+                      <TextInput
+                        style={styles.qtyInput}
+                        value={row.quantityText}
+                        onChangeText={(text) =>
+                          updateRow(row.key, {
+                            quantityText: row.unit === null ? sanitizeIntegerInput(text) : sanitizeDecimalInput(text, 2),
+                          })
+                        }
+                        keyboardType="decimal-pad"
+                      />
+                    </NeumoInset>
+
+                    <View style={styles.unitPickerWrap}>
+                      <SelectField
+                        value={unitPickerValueFor(row.unit)}
+                        options={unitOptions}
+                        sheetTitle="Unit"
+                        onChange={(value) => {
+                          if (value === NO_UNIT_VALUE) {
+                            updateRow(row.key, { unit: null, quantityText: sanitizeIntegerInput(row.quantityText) });
+                          } else if (value === ADD_NEW_UNIT_VALUE) {
+                            updateRow(row.key, { unit: '' });
+                          } else {
+                            updateRow(row.key, { unit: value });
+                          }
+                        }}
+                      />
+                    </View>
+
+                    <TouchableOpacity onPress={() => handleRemoveRow(row.key)}>
+                      <NeumoRaised borderRadius={12} distance={2} style={styles.removeButtonInner}>
+                        <Text style={styles.removeButtonText}>✕</Text>
+                      </NeumoRaised>
+                    </TouchableOpacity>
                   </View>
 
-                  <NeumoInset borderRadius={6} style={styles.qtyInsetWrap}>
-                    <TextInput
-                      style={styles.qtyInput}
-                      value={row.quantityText}
-                      onChangeText={(text) =>
-                        updateRow(row.key, {
-                          quantityText: row.unit === null ? sanitizeIntegerInput(text) : sanitizeDecimalInput(text, 2),
-                        })
-                      }
-                      keyboardType="decimal-pad"
-                    />
-                  </NeumoInset>
-
-                  <View style={styles.unitPickerWrap}>
-                    <NeumoInset borderRadius={6} style={styles.unitInsetWrap}>
+                  {unitPickerValueFor(row.unit) === ADD_NEW_UNIT_VALUE && (
+                    <NeumoInset borderRadius={neumo.radiusSm} style={styles.customUnitInsetWrap}>
                       <TextInput
-                        style={styles.unitInput}
+                        style={styles.customUnitInput}
                         value={row.unit ?? ''}
-                        onChangeText={(text) => {
-                          const trimmed = text.slice(0, UNIT_MAX_LENGTH);
-                          updateRow(row.key, { unit: trimmed.length === 0 ? null : trimmed });
-                        }}
-                        placeholder="pc"
+                        onChangeText={(text) => updateRow(row.key, { unit: text.slice(0, UNIT_MAX_LENGTH) })}
+                        placeholder="Type your custom unit (e.g. sachet)"
                         placeholderTextColor={neumo.textMuted}
                         maxLength={UNIT_MAX_LENGTH}
                         autoCapitalize="none"
+                        autoFocus
                       />
                     </NeumoInset>
+                  )}
+
+                  <View style={styles.secondaryRow}>
+                    <View style={styles.storePickerWrap}>
+                      <SelectField
+                        value={row.targetStoreId}
+                        options={[
+                          { label: 'Default store (auto)', value: AUTO_STORE_VALUE },
+                          ...stores.map((store) => ({ label: store.name, value: store.id })),
+                        ]}
+                        sheetTitle="Store"
+                        onChange={(targetStoreId) => updateRow(row.key, { targetStoreId })}
+                      />
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.optionalToggle}
+                      onPress={() => updateRow(row.key, { isOptional: !row.isOptional })}
+                      activeOpacity={0.7}
+                    >
+                      {row.isOptional ? (
+                        <NeumoAccentRaised borderRadius={4} distance={2} style={styles.optionalCheckbox}>
+                          <Text style={styles.optionalCheckmark}>✓</Text>
+                        </NeumoAccentRaised>
+                      ) : (
+                        <NeumoInset borderRadius={4} style={styles.optionalCheckbox} />
+                      )}
+                      <Text style={styles.optionalLabel}>Optional</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.optionalToggle}
+                      onPress={() => updateRow(row.key, { addToCart: !row.addToCart })}
+                      activeOpacity={0.7}
+                    >
+                      {row.addToCart ? (
+                        <NeumoAccentRaised borderRadius={4} distance={2} style={styles.optionalCheckbox}>
+                          <Text style={styles.optionalCheckmark}>✓</Text>
+                        </NeumoAccentRaised>
+                      ) : (
+                        <NeumoInset borderRadius={4} style={styles.optionalCheckbox} />
+                      )}
+                      <Text style={styles.optionalLabel}>Add to cart</Text>
+                    </TouchableOpacity>
                   </View>
+                </NeumoRaised>
+              ))}
 
-                  <TouchableOpacity onPress={() => handleRemoveRow(row.key)}>
-                    <NeumoRaised borderRadius={12} distance={2} style={styles.removeButtonInner}>
-                      <Text style={styles.removeButtonText}>✕</Text>
-                    </NeumoRaised>
-                  </TouchableOpacity>
+              <TouchableOpacity onPress={handleAddRow}>
+                <View style={styles.addRowButton}>
+                  <Text style={styles.addRowButtonText}>+ Add ingredient</Text>
                 </View>
+              </TouchableOpacity>
+            </ScrollView>
 
-                <View style={styles.secondaryRow}>
-                  <View style={styles.storePickerWrap}>
-                    <SelectField
-                      value={row.targetStoreId}
-                      options={[
-                        { label: 'Default store (auto)', value: AUTO_STORE_VALUE },
-                        ...stores.map((store) => ({ label: store.name, value: store.id })),
-                      ]}
-                      sheetTitle="Store"
-                      onChange={(targetStoreId) => updateRow(row.key, { targetStoreId })}
-                    />
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.optionalToggle}
-                    onPress={() => updateRow(row.key, { isOptional: !row.isOptional })}
-                    activeOpacity={0.7}
-                  >
-                    {row.isOptional ? (
-                      <NeumoAccentRaised borderRadius={4} distance={2} style={styles.optionalCheckbox}>
-                        <Text style={styles.optionalCheckmark}>✓</Text>
-                      </NeumoAccentRaised>
-                    ) : (
-                      <NeumoInset borderRadius={4} style={styles.optionalCheckbox} />
-                    )}
-                    <Text style={styles.optionalLabel}>Optional</Text>
-                  </TouchableOpacity>
-                </View>
-              </NeumoRaised>
-            ))}
-
-            <TouchableOpacity onPress={handleAddRow}>
-              <View style={styles.addRowButton}>
-                <Text style={styles.addRowButtonText}>+ Add ingredient</Text>
-              </View>
-            </TouchableOpacity>
-          </ScrollView>
-
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.cancelButtonWrap} onPress={onCancel} disabled={isSaving}>
-              <NeumoInset borderRadius={10} style={styles.cancelButtonInset}>
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </NeumoInset>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.saveButtonWrap} onPress={handleSave} disabled={isSaving}>
-              <NeumoAccentRaised
-                borderRadius={10}
-                distance={3}
-                fullWidth
-                style={[styles.saveButtonInner, isSaving && styles.saveButtonDisabled]}
-              >
-                <Text style={styles.saveButtonText}>{isSaving ? 'Saving…' : 'Save recipe'}</Text>
-              </NeumoAccentRaised>
-            </TouchableOpacity>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.cancelButtonWrap} onPress={onCancel} disabled={isSaving}>
+                <NeumoInset borderRadius={10} style={styles.cancelButtonInset}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </NeumoInset>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveButtonWrap} onPress={handleSave} disabled={isSaving}>
+                <NeumoAccentRaised
+                  borderRadius={10}
+                  distance={3}
+                  fullWidth
+                  style={[styles.saveButtonInner, isSaving && styles.saveButtonDisabled]}
+                >
+                  <Text style={styles.saveButtonText}>{isSaving ? 'Saving…' : 'Save recipe'}</Text>
+                </NeumoAccentRaised>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </View>
-    </Modal>
+        </Modal>
+
+      <IngredientPickerModal
+        visible={pickerRowKey !== null}
+        items={ingredientItems}
+        categories={categories}
+        onCancel={() => setPickerRowKey(null)}
+        onSelect={(item) => {
+          if (pickerRowKey) updateRow(pickerRowKey, { itemId: item.id });
+          setPickerRowKey(null);
+        }}
+        onItemCreated={onItemCreated}
+      />
+    </>
   );
 }
 
@@ -379,6 +459,24 @@ const styles = StyleSheet.create({
   itemPickerWrap: {
     flex: 2,
   },
+  itemFieldInset: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  itemFieldText: {
+    ...neumoText.body,
+    fontSize: 14,
+    color: neumo.textPrimary,
+    flex: 1,
+    marginRight: 6,
+  },
+  itemFieldChevron: {
+    fontSize: 11,
+    color: neumo.textMuted,
+  },
   qtyInsetWrap: {
     width: 54,
   },
@@ -389,15 +487,15 @@ const styles = StyleSheet.create({
     color: neumo.textPrimary,
   },
   unitPickerWrap: {
-    width: 90,
+    width: 100,
   },
-  unitInsetWrap: {
-    width: '100%',
+  customUnitInsetWrap: {
+    marginTop: 8,
   },
-  unitInput: {
-    textAlign: 'center',
-    fontSize: 14,
+  customUnitInput: {
+    paddingHorizontal: 12,
     paddingVertical: 10,
+    fontSize: 13,
     color: neumo.textPrimary,
   },
   removeButtonInner: {

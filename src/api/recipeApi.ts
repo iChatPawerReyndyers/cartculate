@@ -13,6 +13,7 @@ interface RecipeIngredientResponse {
   defaultPrice: number | string;
   isCustomRouted: boolean;
   isOptional: boolean;
+  addToCart: boolean;
 }
 
 interface RecipeResponse {
@@ -38,6 +39,7 @@ function normalizeRecipe(r: RecipeResponse): Recipe {
       defaultPrice: Number(ing.defaultPrice),
       isCustomRouted: ing.isCustomRouted,
       isOptional: ing.isOptional,
+      addToCart: ing.addToCart,
     })),
   };
 }
@@ -64,6 +66,8 @@ export interface RecipeIngredientInput {
   targetStoreId: string | null;
   /** True if this ingredient is optional (garnish, skippable spice, etc.). */
   isOptional: boolean;
+  /** True if this ingredient's quantity should sync to the Cart tab when the recipe's multiplier changes. Defaults to checked in the New Recipe form. */
+  addToCart: boolean;
 }
 
 export interface CreateRecipeInput {
@@ -85,6 +89,7 @@ export async function createRecipe(userId: number, input: CreateRecipeInput): Pr
             unit: ing.unit,
             targetStoreId: ing.targetStoreId ? Number(ing.targetStoreId) : null,
             isOptional: ing.isOptional,
+            addToCart: ing.addToCart,
           })),
         }),
       });
@@ -105,6 +110,7 @@ export async function createRecipe(userId: number, input: CreateRecipeInput): Pr
         defaultPrice: 0,
         isCustomRouted: ing.targetStoreId !== null,
         isOptional: ing.isOptional,
+        addToCart: ing.addToCart,
       })),
     })
   );
@@ -128,6 +134,7 @@ export async function updateRecipe(
             unit: ing.unit,
             targetStoreId: ing.targetStoreId ? Number(ing.targetStoreId) : null,
             isOptional: ing.isOptional,
+            addToCart: ing.addToCart,
           })),
         }),
       });
@@ -148,6 +155,7 @@ export async function updateRecipe(
         defaultPrice: 0,
         isCustomRouted: ing.targetStoreId !== null,
         isOptional: ing.isOptional,
+        addToCart: ing.addToCart,
       })),
     })
   );

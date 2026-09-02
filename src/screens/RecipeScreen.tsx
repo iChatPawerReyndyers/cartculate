@@ -9,6 +9,7 @@ import { CURRENT_USER_ID } from '../api/config';
 import { ApiError } from '../api/httpClient';
 import { Item, Recipe } from '../types';
 import { neumo, neumoText, NeumoRaised, NeumoInset } from '../utils/neumorphic';
+import { cachedFetch, CACHE_KEYS } from '../utils/cache';
 
 interface RecipeScreenProps {
   onCartChanged: () => void;
@@ -38,18 +39,33 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
+    let usedCache = false;
     try {
       const [recipeData, itemData, storeData] = await Promise.all([
-        fetchRecipes(CURRENT_USER_ID),
-        fetchItems(),
-        fetchStores(),
+        cachedFetch(CACHE_KEYS.recipes(CURRENT_USER_ID), () => fetchRecipes(CURRENT_USER_ID), (cached) => {
+          // Cached recipes are enough to render the main list - drop the
+          // spinner right away rather than waiting on all three fetches,
+          // since items/stores refreshing in the background doesn't
+          // block anything the user sees first.
+          usedCache = true;
+          setRecipes(cached);
+          setLoading(false);
+        }),
+        cachedFetch(CACHE_KEYS.items, fetchItems, setItems),
+        cachedFetch(CACHE_KEYS.stores, fetchStores, setStores),
       ]);
       setRecipes(recipeData);
       setItems(itemData);
       setStores(storeData);
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : 'Failed to load recipes.');
+      // If cached recipes are already on screen, a failed background
+      // refresh shouldn't yank them away behind an error screen - the
+      // stale data is still more useful than nothing. Only a true
+      // first-load (nothing cached to fall back on) blocks on this.
+      if (!usedCache) {
+        setLoadError(err instanceof ApiError ? err.message : 'Failed to load recipes.');
+      }
     } finally {
       setLoading(false);
     }
@@ -209,6 +225,7 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
         }}
         onSave={handleSaveModal}
         isSaving={isSavingRecipe}
+        onItemCreated={(item) => setItems((current) => [...current, item])}
       />
     </View>
   );

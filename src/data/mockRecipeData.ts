@@ -21,6 +21,7 @@ export const mockRecipes: Recipe[] = [
         defaultPrice: 45.0,
         isCustomRouted: false,
         isOptional: false,
+        addToCart: true,
       },
       {
         itemId: '4',
@@ -33,6 +34,7 @@ export const mockRecipes: Recipe[] = [
         defaultPrice: 320.0,
         isCustomRouted: false,
         isOptional: false,
+        addToCart: true,
       },
       {
         itemId: '2',
@@ -45,6 +47,7 @@ export const mockRecipes: Recipe[] = [
         defaultPrice: 30.0,
         isCustomRouted: false,
         isOptional: false,
+        addToCart: true,
       },
     ],
   },
@@ -64,6 +67,7 @@ export const mockRecipes: Recipe[] = [
         defaultPrice: 180.0,
         isCustomRouted: false,
         isOptional: false,
+        addToCart: true,
       },
       {
         itemId: '1',
@@ -76,6 +80,7 @@ export const mockRecipes: Recipe[] = [
         defaultPrice: 45.0,
         isCustomRouted: false,
         isOptional: false,
+        addToCart: true,
       },
       {
         itemId: '3',
@@ -88,6 +93,7 @@ export const mockRecipes: Recipe[] = [
         defaultPrice: 20.0,
         isCustomRouted: false,
         isOptional: false,
+        addToCart: true,
       },
     ],
   },

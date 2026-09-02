@@ -19,6 +19,7 @@ import { ApiError } from '../api/httpClient';
 import { formatCurrency } from '../utils/inputSanitization';
 import { CategoryDefaultStore, Item } from '../types';
 import { mergeCategories } from '../utils/categories';
+import { cachedFetch, CACHE_KEYS } from '../utils/cache';
 import ProductModal, { ExistingProductPrice, ProductSaveResult } from './ProductModal';
 import CategoryDefaultStoresCard from './CategoryDefaultStoresCard';
 import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
@@ -73,19 +74,35 @@ export default function PriceCatalogView() {
 
   const loadCatalog = useCallback(async () => {
     setLoading(true);
+    let usedCache = false;
     try {
       const [priceData, itemData, storeData] = await Promise.all([
-        fetchAllStorePrices(),
-        fetchItems(),
-        fetchStores(),
+        cachedFetch(CACHE_KEYS.storePrices, fetchAllStorePrices, (cached) => {
+          // Cached items+prices are enough to render the catalog list -
+          // drop the spinner right away instead of waiting on the
+          // network, the same pattern as RecipeScreen's loadAll.
+          usedCache = true;
+          setEntries(cached);
+          setLoading(false);
+        }),
+        cachedFetch(CACHE_KEYS.items, fetchItems, (cached) => {
+          usedCache = true;
+          setItems(cached);
+          setLoading(false);
+        }),
+        cachedFetch(CACHE_KEYS.stores, fetchStores, setStores),
       ]);
       setEntries(priceData);
       setItems(itemData);
       setStores(storeData);
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : 'Failed to load prices.');
-      setLoading(false);
+      // Don't hide already-visible cached data behind an error screen -
+      // only a true first-load (nothing cached yet) blocks on this.
+      if (!usedCache) {
+        setLoadError(err instanceof ApiError ? err.message : 'Failed to load prices.');
+        setLoading(false);
+      }
       return;
     }
 
