@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Store, createStore } from '../api/storeApi';
 import { sanitizeDecimalInput, isValidPositiveNumber } from '../utils/inputSanitization';
@@ -11,6 +11,7 @@ import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '..
 const ADD_NEW_CATEGORY_VALUE = '__add_new_category__';
 const ADD_NEW_STORE_VALUE = '__add_new_store__';
 const ADD_NEW_UNIT_VALUE = '__add_new_unit__';
+const NO_UNIT_VALUE = '__no_unit__';
 
 /**
  * Resolves which store should be this product's default, per the
@@ -63,7 +64,7 @@ export interface ProductSaveResult {
   itemId?: string;
   name: string;
   category: string;
-  unit: string;
+  unit: string | null;
   isIngredient: boolean;
   defaultStoreId: string | null | undefined;
   priceRows: { storeId: string; price: number }[];
@@ -134,7 +135,7 @@ export default function ProductModal({
   const [name, setName] = useState('');
   const [categoryPickerValue, setCategoryPickerValue] = useState('');
   const [customCategoryText, setCustomCategoryText] = useState('');
-  const [unit, setUnit] = useState(UNIT_OPTIONS[0]);
+  const [unit, setUnit] = useState<string | null>(null);
   const [unitPickerValue, setUnitPickerValue] = useState<string>(UNIT_OPTIONS[0]);
   const [isIngredient, setIsIngredient] = useState(false);
   const [defaultStorePickerValue, setDefaultStorePickerValue] = useState<string | null>(null);
@@ -148,9 +149,9 @@ export default function ProductModal({
     const initialCategory = existingCategory ?? categories[0] ?? '';
     setCategoryPickerValue(initialCategory);
     setCustomCategoryText('');
-    const initialUnit = existingUnit ?? UNIT_OPTIONS[0];
+    const initialUnit = existingUnit ?? null;
     setUnit(initialUnit);
-    setUnitPickerValue(UNIT_OPTIONS.includes(initialUnit) ? initialUnit : ADD_NEW_UNIT_VALUE);
+    setUnitPickerValue(initialUnit === null ? NO_UNIT_VALUE : UNIT_OPTIONS.includes(initialUnit) ? initialUnit : ADD_NEW_UNIT_VALUE);
     // For a brand-new product (existingIsIngredient undefined), prefill
     // from the initially-selected category's default instead of always
     // starting false - see the SelectField onChange above for the
@@ -252,6 +253,7 @@ export default function ProductModal({
   ];
 
   const unitOptions = [
+    { label: 'No unit (count)', value: NO_UNIT_VALUE },
     ...UNIT_OPTIONS.map((u) => ({ label: u, value: u })),
     { label: '+ Add custom unit...', value: ADD_NEW_UNIT_VALUE },
   ];
@@ -292,11 +294,6 @@ export default function ProductModal({
       );
       return;
     }
-    if (!unit.trim()) {
-      Alert.alert('Unit required', 'Type a unit for this product (e.g. kg, pc).');
-      return;
-    }
-
     for (const row of priceRows) {
       if (row.storeId === ADD_NEW_STORE_VALUE && !row.newStoreText.trim()) {
         Alert.alert('Store name required', 'Type a name for the new store, or remove that price row.');
@@ -381,6 +378,7 @@ export default function ProductModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
         <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
           <ScrollView
             style={styles.formScroll}
@@ -440,7 +438,8 @@ export default function ProductModal({
               sheetTitle="Unit"
               onChange={(value) => {
                 setUnitPickerValue(value);
-                if (value !== ADD_NEW_UNIT_VALUE) setUnit(value);
+                if (value === NO_UNIT_VALUE) setUnit(null);
+                else if (value !== ADD_NEW_UNIT_VALUE) setUnit(value);
               }}
             />
 
@@ -448,7 +447,7 @@ export default function ProductModal({
               <NeumoInset borderRadius={neumo.radiusSm} style={styles.newValueInsetWrap}>
                 <TextInput
                   style={styles.newValueInput}
-                  value={unit}
+                  value={unit ?? ''}
                   onChangeText={(text) => setUnit(text.slice(0, UNIT_MAX_LENGTH))}
                   placeholder="Type your custom unit (e.g. sachet)"
                   placeholderTextColor={neumo.textMuted}
@@ -557,6 +556,7 @@ export default function ProductModal({
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -567,6 +567,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(58,67,88,0.4)',
     justifyContent: 'flex-end',
+  },
+  keyboardAvoiding: {
+    width: '100%',
   },
   sheet: {
     backgroundColor: neumo.background,

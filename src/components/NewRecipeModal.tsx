@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Item, Recipe } from '../types';
 import { Store } from '../api/storeApi';
@@ -18,9 +18,10 @@ const ADD_NEW_UNIT_VALUE = '__add_new_unit__';
 /** Maps a row's raw `unit` value to the SelectField option it corresponds
  * to - null (countable item, e.g. "2 carrots") gets its own option since
  * it isn't just "no selection yet", it's a meaningful, saved choice. */
-function unitPickerValueFor(unit: string | null): string {
+function unitPickerValueFor(unit: string | null, customUnits: string[]): string {
   if (unit === null) return NO_UNIT_VALUE;
   if (UNIT_OPTIONS.includes(unit)) return unit;
+  if (customUnits.includes(unit)) return unit;
   return ADD_NEW_UNIT_VALUE;
 }
 
@@ -32,7 +33,7 @@ const unitOptions = [
 
 interface IngredientRow {
   key: string;
-  itemId: string;
+  itemId: string | null;
   quantityText: string;
   unit: string | null;
   targetStoreId: string;
@@ -55,7 +56,7 @@ interface NewRecipeModalProps {
   onItemCreated: (item: Item) => void;
 }
 
-function makeEmptyRow(defaultItemId: string): IngredientRow {
+function makeEmptyRow(defaultItemId: string | null = null): IngredientRow {
   return {
     key: `${Date.now()}-${Math.random()}`,
     itemId: defaultItemId,
@@ -95,6 +96,7 @@ export default function NewRecipeModal({
   const [name, setName] = useState('');
   const [rows, setRows] = useState<IngredientRow[]>([]);
   const [pickerRowKey, setPickerRowKey] = useState<string | null>(null);
+  const [customUnits, setCustomUnits] = useState<string[]>([]);
 
   const categories = useMemo(() => mergeCategories(items.map((i) => i.category)), [items]);
 
@@ -113,6 +115,12 @@ export default function NewRecipeModal({
     if (!visible) return;
     if (mode === 'edit' && existingRecipe) {
       setName(existingRecipe.name);
+      setCustomUnits(
+        existingRecipe.ingredients
+          .map((ingredient) => ingredient.unit?.trim() ?? '')
+          .filter((unit) => unit && !UNIT_OPTIONS.includes(unit))
+          .filter((unit, index, units) => units.indexOf(unit) === index)
+      );
       setRows(
         existingRecipe.ingredients.map((ing) => ({
           key: `${ing.itemId}-${Date.now()}-${Math.random()}`,
@@ -121,12 +129,13 @@ export default function NewRecipeModal({
           unit: ing.unit,
           targetStoreId: ing.isCustomRouted ? ing.defaultStoreId : AUTO_STORE_VALUE,
           isOptional: ing.isOptional,
-          addToCart: ing.addToCart,
+          addToCart: ing.addToCart !== false,
         }))
       );
     } else {
       setName('');
-      setRows(ingredientItems.length > 0 ? [makeEmptyRow(ingredientItems[0].id)] : []);
+      setCustomUnits([]);
+      setRows([makeEmptyRow()]);
     }
   }, [visible, mode, existingRecipe, ingredientItems]);
 
@@ -138,7 +147,7 @@ export default function NewRecipeModal({
       );
       return;
     }
-    setRows((current) => [...current, makeEmptyRow(ingredientItems[0].id)]);
+    setRows((current) => [...current, makeEmptyRow()]);
   };
 
   const handleRemoveRow = (key: string) => {
@@ -147,6 +156,13 @@ export default function NewRecipeModal({
 
   const updateRow = (key: string, updates: Partial<IngredientRow>) => {
     setRows((current) => current.map((row) => (row.key === key ? { ...row, ...updates } : row)));
+  };
+
+  const commitCustomUnit = (rowKey: string, draft: string | null) => {
+    const value = draft?.trim() ?? '';
+    if (!value) return;
+    setCustomUnits((current) => (current.includes(value) ? current : [...current, value]));
+    updateRow(rowKey, { unit: value });
   };
 
   const handleSave = () => {
@@ -161,6 +177,10 @@ export default function NewRecipeModal({
 
     const ingredients: RecipeIngredientInput[] = [];
     for (const row of rows) {
+      if (!row.itemId) {
+        Alert.alert('Select an ingredient', 'Choose a product for every ingredient row before saving.');
+        return;
+      }
       if (!isValidPositiveNumber(row.quantityText)) {
         Alert.alert('Check quantities', 'Every ingredient needs a quantity greater than 0.');
         return;
@@ -186,11 +206,13 @@ export default function NewRecipeModal({
     <>
         <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
         <View style={styles.overlay}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
           <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
             <ScrollView
               style={styles.formScroll}
               contentContainerStyle={styles.formScrollContent}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
               <Text style={styles.title}>{mode === 'add' ? 'New recipe' : 'Edit recipe'}</Text>
 
@@ -237,8 +259,8 @@ export default function NewRecipeModal({
 
                     <View style={styles.unitPickerWrap}>
                       <SelectField
-                        value={unitPickerValueFor(row.unit)}
-                        options={unitOptions}
+                        value={unitPickerValueFor(row.unit, customUnits)}
+                        options={[...unitOptions, ...customUnits.map((unit) => ({ label: unit, value: unit }))]}
                         sheetTitle="Unit"
                         onChange={(value) => {
                           if (value === NO_UNIT_VALUE) {
@@ -259,12 +281,15 @@ export default function NewRecipeModal({
                     </TouchableOpacity>
                   </View>
 
-                  {unitPickerValueFor(row.unit) === ADD_NEW_UNIT_VALUE && (
+                  {unitPickerValueFor(row.unit, customUnits) === ADD_NEW_UNIT_VALUE && (
                     <NeumoInset borderRadius={neumo.radiusSm} style={styles.customUnitInsetWrap}>
                       <TextInput
                         style={styles.customUnitInput}
                         value={row.unit ?? ''}
                         onChangeText={(text) => updateRow(row.key, { unit: text.slice(0, UNIT_MAX_LENGTH) })}
+                        onEndEditing={() => commitCustomUnit(row.key, row.unit)}
+                        onSubmitEditing={() => commitCustomUnit(row.key, row.unit)}
+                        returnKeyType="done"
                         placeholder="Type your custom unit (e.g. sachet)"
                         placeholderTextColor={neumo.textMuted}
                         maxLength={UNIT_MAX_LENGTH}
@@ -345,6 +370,7 @@ export default function NewRecipeModal({
               </TouchableOpacity>
             </View>
           </View>
+          </KeyboardAvoidingView>
         </View>
         </Modal>
 
@@ -368,6 +394,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(58,67,88,0.4)',
     justifyContent: 'flex-end',
+  },
+  keyboardAvoiding: {
+    width: '100%',
   },
   sheet: {
     backgroundColor: neumo.background,

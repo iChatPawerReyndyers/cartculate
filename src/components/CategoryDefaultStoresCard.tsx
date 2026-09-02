@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Store } from '../api/storeApi';
 import { CategoryDefaultStore } from '../types';
@@ -94,6 +94,7 @@ export default function CategoryDefaultStoresCard({
         onRequestClose={() => setManagerOpen(false)}
       >
         <View style={styles.overlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
           <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
             <View style={styles.sheetHeaderRow}>
               <Text style={styles.sheetTitle}>Category defaults</Text>
@@ -108,7 +109,7 @@ export default function CategoryDefaultStoresCard({
             </Text>
 
             <NeumoInset borderRadius={14} style={styles.listInset}>
-              <ScrollView>
+              <ScrollView keyboardShouldPersistTaps="handled">
                 {categories.map((category) => {
                   const label = labelFor(category);
                   const isSet = label !== NONE_LABEL;
@@ -178,6 +179,7 @@ export default function CategoryDefaultStoresCard({
               </ScrollView>
             </NeumoInset>
           </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -241,6 +243,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(58,67,88,0.4)',
     justifyContent: 'flex-end',
+  },
+  keyboardAvoiding: {
+    width: '100%',
   },
   sheet: {
     backgroundColor: neumo.background,

@@ -152,7 +152,13 @@ export default function CartItem({
 
           <Text style={styles.quantity}>{formatQuantityValue(needToBuy)}</Text>
 
-          <TouchableOpacity onPress={() => onIncrement(item.itemId, item.storeId)} activeOpacity={0.85}>
+          <TouchableOpacity
+            onPress={() => onIncrement(item.itemId, item.storeId)}
+            activeOpacity={0.85}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Increase ${item.itemName}`}
+          >
             <NeumoAccentRaised borderRadius={neumo.radiusSm} distance={3} style={styles.stepButtonAccent}>
               <Text style={styles.stepButtonPlusText}>+</Text>
             </NeumoAccentRaised>

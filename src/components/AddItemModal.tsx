@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchItems, createItem } from '../api/itemApi';
@@ -12,6 +12,7 @@ import { neumo, neumoText, NeumoInset, NeumoAccentRaised } from '../utils/neumor
 
 const ADD_NEW_CATEGORY_VALUE = '__add_new_category__';
 const ADD_NEW_STORE_VALUE = '__add_new_store__';
+const NO_UNIT_VALUE = '__no_unit__';
 
 interface AddItemModalProps {
   visible: boolean;
@@ -39,7 +40,7 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
   const [name, setName] = useState('');
   const [categoryPickerValue, setCategoryPickerValue] = useState('');
   const [customCategoryText, setCustomCategoryText] = useState('');
-  const [unit, setUnit] = useState(UNIT_OPTIONS[0]);
+  const [unit, setUnit] = useState<string | null>(null);
   const [isIngredient, setIsIngredient] = useState(false);
   const [storePickerValue, setStorePickerValue] = useState('');
   const [newStoreText, setNewStoreText] = useState('');
@@ -69,7 +70,7 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
     setName('');
     setCategoryPickerValue('');
     setCustomCategoryText('');
-    setUnit(UNIT_OPTIONS[0]);
+    setUnit(null);
     setIsIngredient(false);
     setStorePickerValue('');
     setNewStoreText('');
@@ -116,7 +117,7 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
           ? (await createStore(newStoreText.trim())).id
           : storePickerValue;
 
-      await updateStorePrices(storeId, [{ itemId: item.id, priceAmount: parseFloat(priceText) }]);
+      await updateStorePrices(storeId, [{ itemId: item.id, priceAmount: parseFloat(priceText) }], 'MANUAL');
       await onAdd(item.id, storeId, parseFloat(quantityText));
 
       resetForm();
@@ -130,11 +131,14 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
         <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
           <Text style={styles.title}>New product</Text>
           <Text style={styles.subtitle}>
             Not in your catalog yet? Add it here and it'll go straight into your cart.
           </Text>
+
+          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
           {loadingOptions ? (
             <ActivityIndicator size="small" color={neumo.accent} style={styles.loadingIndicator} />
@@ -183,7 +187,13 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
 
               <Text style={styles.label}>Unit</Text>
               <NeumoInset borderRadius={neumo.radiusSm} style={styles.pickerInsetWrap}>
-                <Picker selectedValue={unit} onValueChange={setUnit} style={styles.picker} mode="dropdown">
+                <Picker
+                  selectedValue={unit ?? NO_UNIT_VALUE}
+                  onValueChange={(value: string) => setUnit(value === NO_UNIT_VALUE ? null : value)}
+                  style={styles.picker}
+                  mode="dropdown"
+                >
+                  <Picker.Item label="No unit (count)" value={NO_UNIT_VALUE} />
                   {UNIT_OPTIONS.map((opt) => (
                     <Picker.Item key={opt} label={opt} value={opt} />
                   ))}
@@ -258,6 +268,8 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
             </>
           )}
 
+          </ScrollView>
+
           <View style={styles.buttonRow}>
             <TouchableOpacity style={styles.cancelButtonWrap} onPress={handleClose} disabled={isSubmitting}>
               <NeumoInset borderRadius={10} style={styles.cancelButtonInset}>
@@ -280,6 +292,7 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -290,6 +303,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(58,67,88,0.4)',
     justifyContent: 'flex-end',
+  },
+  keyboardAvoiding: {
+    width: '100%',
   },
   sheet: {
     backgroundColor: neumo.background,

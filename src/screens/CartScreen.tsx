@@ -1,7 +1,8 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
+  TextInput,
   ScrollView,
   TouchableOpacity,
   Pressable,
@@ -11,6 +12,7 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  RefreshControl,
   StyleSheet,
 } from 'react-native';
 import StoreSection from '../components/StoreSection';
@@ -29,7 +31,7 @@ import { moveCartItem } from '../api/cartApi';
 import { CURRENT_USER_ID } from '../api/config';
 import { CartRow, ManifestItem, StoreGroup, UserMode, ConsolidatedItem } from '../types';
 import { formatCurrency } from '../utils/inputSanitization';
-import { neumo, neumoText, NeumoRaised, NeumoInset } from '../utils/neumorphic';
+import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -58,6 +60,7 @@ interface CartScreenProps {
   onAddItem: (itemId: string, storeId: string, quantity: number) => Promise<void>;
   onNavigateToScanner?: () => void;
   onMoveItem: (itemId: string, fromStoreId: string, toStoreId: string) => Promise<void>;
+  onRefresh: () => Promise<void>;
 }
 
 /**
@@ -82,6 +85,7 @@ export default function CartScreen({
   onAddItem,
   onNavigateToScanner,
   onMoveItem,
+  onRefresh,
 }: CartScreenProps) {
   const [mode, setMode] = useState<UserMode>('HOME');
   const [modeLoading, setModeLoading] = useState(true);
@@ -104,6 +108,9 @@ export default function CartScreen({
   // store, including one with nothing in the cart yet.
   const [movingItem, setMovingItem] = useState<ConsolidatedItem | null>(null);
   const [allStores, setAllStores] = useState<Store[]>([]);
+  const [searchText, setSearchText] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     fetchStores()
@@ -144,9 +151,25 @@ export default function CartScreen({
   // item's includeInCart hasn't loaded yet, so rows don't flash hidden
   // then reappear while that fetch is still in flight.
   const visibleCartRows = useMemo(
-    () => cartRows.filter((row) => includeInCartById.get(row.itemId) !== false),
-    [cartRows, includeInCartById]
+    () => {
+      const query = searchText.trim().toLowerCase();
+      return cartRows.filter(
+        (row) =>
+          includeInCartById.get(row.itemId) !== false &&
+          (!query || row.itemName.toLowerCase().includes(query) || row.category.toLowerCase().includes(query))
+      );
+    },
+    [cartRows, includeInCartById, searchText]
   );
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh]);
 
   useEffect(() => {
     fetchUserMode(CURRENT_USER_ID)
@@ -303,7 +326,8 @@ export default function CartScreen({
       {modeLoading ? (
         <ActivityIndicator size="small" color={neumo.accent} style={styles.modeLoadingIndicator} />
       ) : (
-        <View style={styles.toggleRow}>
+        <>
+        <View style={styles.modeRow}>
           <NeumoInset borderRadius={14} style={styles.modeToggleInset}>
             <TouchableOpacity style={styles.modeButtonWrap} onPress={() => handleModeChange('HOME')}>
               {mode === 'HOME' ? (
@@ -329,15 +353,29 @@ export default function CartScreen({
             </TouchableOpacity>
           </NeumoInset>
 
+        </View>
+
+        <View style={styles.filterRow}>
+          <NeumoInset borderRadius={neumo.radiusSm} style={styles.searchInsetWrap}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search products..."
+              placeholderTextColor={neumo.textMuted}
+              value={searchText}
+              onChangeText={setSearchText}
+              returnKeyType="search"
+            />
+          </NeumoInset>
+
           {mode === 'HOME' && (
             <NeumoInset borderRadius={11} style={styles.viewToggleInset}>
               {(['store', 'status', 'category'] as ViewMode[]).map((vm) => {
                 const label = vm === 'store' ? 'By Store' : vm === 'status' ? 'By Status' : 'By Category';
                 const active = viewMode === vm;
                 return (
-                  <TouchableOpacity key={vm} onPress={() => setViewMode(vm)}>
+                  <TouchableOpacity key={vm} onPress={() => setViewMode(vm)} style={styles.viewButtonWrap}>
                     {active ? (
-                      <NeumoRaised borderRadius={9} distance={2} style={styles.viewButtonRaised}>
+                      <NeumoRaised borderRadius={9} distance={2} style={styles.viewButtonRaised} fullWidth>
                         <Text style={styles.viewButtonTextActive}>{label}</Text>
                       </NeumoRaised>
                     ) : (
@@ -351,9 +389,15 @@ export default function CartScreen({
             </NeumoInset>
           )}
         </View>
+        </>
       )}
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={neumo.accent} />}
+        keyboardShouldPersistTaps="handled"
+      >
         {(mode === 'AWAY' || viewMode === 'store') && (
           <>
             {stores.map((store) => {
@@ -496,6 +540,17 @@ export default function CartScreen({
         )}
       </ScrollView>
 
+      <TouchableOpacity
+        accessibilityLabel="Scroll to top"
+        onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
+        style={styles.scrollTopButton}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <NeumoAccentRaised borderRadius={24} distance={3} style={styles.scrollTopButtonInner}>
+          <Text style={styles.scrollTopButtonText}>↑</Text>
+        </NeumoAccentRaised>
+      </TouchableOpacity>
+
       <MoveToStoreModal
         visible={movingItem !== null}
         itemName={movingItem?.itemName ?? ''}
@@ -554,6 +609,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: neumo.accentDark,
   },
+  searchInsetWrap: {
+    flex: 0,
+    width: '33%',
+  },
+  searchInput: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: neumo.textPrimary,
+  },
+  scrollTopButton: {
+    position: 'absolute',
+    right: 18,
+    bottom: 18,
+  },
+  scrollTopButtonInner: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scrollTopButtonText: {
+    ...neumoText.heading,
+    fontSize: 22,
+    color: '#FFFFFF',
+  },
   masterResetButton: {
     backgroundColor: neumo.danger,
     borderRadius: neumo.radiusSm,
@@ -571,7 +653,13 @@ const styles = StyleSheet.create({
   modeLoadingIndicator: {
     marginVertical: 8,
   },
-  toggleRow: {
+  modeRow: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginHorizontal: 12,
     marginBottom: 12,
     gap: 8,
@@ -605,16 +693,21 @@ const styles = StyleSheet.create({
   viewToggleInset: {
     flexDirection: 'row',
     padding: 2,
-    alignSelf: 'flex-start',
+    flex: 1,
+  },
+  viewButtonWrap: {
+    flex: 1,
   },
   viewButtonRaised: {
     paddingVertical: 5,
-    paddingHorizontal: 12,
+    paddingHorizontal: 2,
+    alignItems: 'center',
   },
   viewButtonFlat: {
     paddingVertical: 5,
-    paddingHorizontal: 12,
+    paddingHorizontal: 2,
     borderRadius: 9,
+    alignItems: 'center',
   },
   viewButtonText: {
     ...neumoText.body,

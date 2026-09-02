@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Alert, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Alert, StyleSheet, RefreshControl } from 'react-native';
 import RecipeCard from '../components/RecipeCard';
 import NewRecipeModal from '../components/NewRecipeModal';
 import { fetchRecipes, createRecipe, updateRecipe, deleteRecipe, updateMultiplier, RecipeIngredientInput } from '../api/recipeApi';
@@ -36,6 +36,8 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
   const [editingRecipe, setEditingRecipe] = useState<Recipe | undefined>(undefined);
   const [isSavingRecipe, setIsSavingRecipe] = useState(false);
   const [updatingMultiplierId, setUpdatingMultiplierId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -70,6 +72,15 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
       setLoading(false);
     }
   }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadAll();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadAll]);
 
   useEffect(() => {
     loadAll();
@@ -196,7 +207,12 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
           </TouchableOpacity>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={neumo.accent} />}
+          keyboardShouldPersistTaps="handled"
+        >
           {filteredRecipes.map((recipe) => (
             <RecipeCard
               key={recipe.id}
@@ -211,6 +227,18 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
             <Text style={styles.emptyText}>No recipes match "{searchText}".</Text>
           )}
         </ScrollView>
+      )}
+
+      {!loading && !loadError && (
+        <TouchableOpacity
+          accessibilityLabel="Scroll to top"
+          onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
+          style={styles.scrollTopButton}
+        >
+          <NeumoRaised borderRadius={24} distance={3} style={styles.scrollTopButtonInner}>
+            <Text style={styles.scrollTopButtonText}>↑</Text>
+          </NeumoRaised>
+        </TouchableOpacity>
       )}
 
       <NewRecipeModal
@@ -235,6 +263,24 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: neumo.background,
+  },
+  scrollTopButton: {
+    position: 'absolute',
+    right: 18,
+    bottom: 18,
+  },
+  scrollTopButtonInner: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: neumo.accent,
+  },
+  scrollTopButtonText: {
+    ...neumoText.heading,
+    fontSize: 22,
+    color: '#FFFFFF',
   },
   centerContent: {
     flex: 1,

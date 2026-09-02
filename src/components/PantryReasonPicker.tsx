@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { neumoText, NeumoRaised } from '../utils/neumorphic';
 
 const QUICK_REASONS = ['📦 Freezer Find', '🥫 Pantry Stock', '🎁 Leftovers'];
@@ -61,7 +61,9 @@ export default function PantryReasonPicker({
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onCancel}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onCancel}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
         <TouchableOpacity activeOpacity={1} style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <Text style={styles.title}>Pantry Treasure Found! 🏴‍☠️</Text>
           {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
 
@@ -112,7 +114,9 @@ export default function PantryReasonPicker({
               </TouchableOpacity>
             </View>
           )}
+          </ScrollView>
         </TouchableOpacity>
+        </KeyboardAvoidingView>
       </TouchableOpacity>
     </Modal>
   );
@@ -125,6 +129,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+  },
+  keyboardAvoiding: {
+    width: '100%',
   },
   sheet: {
     backgroundColor: WARM_BG,

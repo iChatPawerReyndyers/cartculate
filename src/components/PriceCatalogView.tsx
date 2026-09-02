@@ -197,6 +197,17 @@ export default function PriceCatalogView() {
     }
   }, []);
 
+  const handleToggleIsIngredient = useCallback(async (item: Item) => {
+    const nextValue = !item.isIngredient;
+    setItems((current) => current.map((i) => (i.id === item.id ? { ...i, isIngredient: nextValue } : i)));
+    try {
+      await updateItem(item.id, item.name, item.category, item.unit, nextValue, item.defaultStoreId);
+    } catch (err) {
+      setItems((current) => current.map((i) => (i.id === item.id ? { ...i, isIngredient: !nextValue } : i)));
+      Alert.alert('Could not update ingredient setting', 'Please check your connection and try again.');
+    }
+  }, []);
+
   /**
    * Deletion cascades wherever this item is referenced (prices at every
    * store, any cart it's in, any recipe using it - see ItemService's
@@ -323,6 +334,10 @@ export default function PriceCatalogView() {
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.listContent}>
         <NeumoRaised fullWidth style={styles.listInner}>
+          <View style={styles.checkboxHeader}>
+            <Text style={styles.checkboxHeaderText}>Cart</Text>
+            <Text style={styles.checkboxHeaderText}>Ingredient</Text>
+          </View>
           {filtered.map((group, idx) => {
             const item = items.find((i) => i.id === group.itemId);
             return (
@@ -334,6 +349,24 @@ export default function PriceCatalogView() {
                     activeOpacity={0.7}
                   >
                     {item.includeInCart ? (
+                      <NeumoAccentRaised borderRadius={6} distance={3} style={styles.checkboxChecked}>
+                        <Text style={styles.checkmark}>✓</Text>
+                      </NeumoAccentRaised>
+                    ) : (
+                      <NeumoInset borderRadius={6} style={styles.checkboxInset} />
+                    )}
+                  </TouchableOpacity>
+                )}
+                {item && (
+                  <TouchableOpacity
+                    style={styles.leadingCheckboxWrap}
+                    onPress={() => handleToggleIsIngredient(item)}
+                    activeOpacity={0.7}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: item.isIngredient }}
+                    accessibilityLabel={`${item.name} recipe ingredient setting`}
+                  >
+                    {item.isIngredient ? (
                       <NeumoAccentRaised borderRadius={6} distance={3} style={styles.checkboxChecked}>
                         <Text style={styles.checkmark}>✓</Text>
                       </NeumoAccentRaised>
@@ -469,6 +502,20 @@ const styles = StyleSheet.create({
   },
   listInner: {
     paddingHorizontal: 14,
+  },
+  checkboxHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    gap: 28,
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+  },
+  checkboxHeaderText: {
+    ...neumoText.caption,
+    fontSize: 10,
+    color: neumo.textMuted,
+    width: 20,
+    textAlign: 'center',
   },
   row: {
     flexDirection: 'row',

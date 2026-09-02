@@ -425,6 +425,7 @@ function AppContent() {
             onAddItem={handleAddItem}
             onNavigateToScanner={() => setActiveTab(TABS.SCAN)}
             onMoveItem={handleMoveCartItem}
+            onRefresh={loadCart}
           />
         )}
         {activeTab === TABS.RECIPES && (

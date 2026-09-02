@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ConsolidatedItem, ManifestItem } from '../types';
 import {
@@ -99,6 +99,7 @@ export default function ReconciliationModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
       <View style={styles.overlay}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
         <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
           <Text style={styles.title}>Trip complete?</Text>
           <Text style={styles.subtitle}>
@@ -106,7 +107,7 @@ export default function ReconciliationModal({
           </Text>
 
           <NeumoInset borderRadius={14} style={styles.itemsInset}>
-            <ScrollView>
+            <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={styles.cardLabel}>Checked items — adjust qty bought if you got less than needed</Text>
               {originalManifest.map((item, idx) => {
                 const boughtQty = boughtQtyOverrides[item.itemId] ?? item.quantity;
@@ -238,6 +239,7 @@ export default function ReconciliationModal({
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -248,6 +250,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(58,67,88,0.4)',
     justifyContent: 'flex-end',
+  },
+  keyboardAvoiding: {
+    width: '100%',
   },
   sheet: {
     backgroundColor: neumo.background,

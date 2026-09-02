@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, FlatList, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, FlatList, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { neumo, neumoText, NeumoRaised, NeumoInset } from '../utils/neumorphic';
 import { Item } from '../types';
 import { createItem } from '../api/itemApi';
@@ -7,6 +7,7 @@ import { UNIT_OPTIONS, UNIT_MAX_LENGTH } from '../utils/units';
 import SelectField from './SelectField';
 
 const ADD_NEW_UNIT_VALUE = '__add_new_unit__';
+const NO_UNIT_VALUE = '__no_unit__';
 
 interface IngredientPickerModalProps {
   visible: boolean;
@@ -42,7 +43,7 @@ export default function IngredientPickerModal({
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newCategory, setNewCategory] = useState('');
-  const [unitPickerValue, setUnitPickerValue] = useState<string>(UNIT_OPTIONS[0]);
+  const [unitPickerValue, setUnitPickerValue] = useState<string>(NO_UNIT_VALUE);
   const [customUnit, setCustomUnit] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -57,7 +58,7 @@ export default function IngredientPickerModal({
     setShowCreateForm(false);
     setNewName('');
     setNewCategory('');
-    setUnitPickerValue(UNIT_OPTIONS[0]);
+    setUnitPickerValue(NO_UNIT_VALUE);
     setCustomUnit('');
     onCancel();
   };
@@ -70,16 +71,16 @@ export default function IngredientPickerModal({
   const handleOpenCreateForm = () => {
     setNewName(query.trim());
     setNewCategory(categories[0] ?? '');
-    setUnitPickerValue(UNIT_OPTIONS[0]);
+    setUnitPickerValue(NO_UNIT_VALUE);
     setCustomUnit('');
     setShowCreateForm(true);
   };
 
   const handleSaveNewProduct = async () => {
-    const resolvedUnit = unitPickerValue === ADD_NEW_UNIT_VALUE ? customUnit.trim() : unitPickerValue;
+    const resolvedUnit = unitPickerValue === NO_UNIT_VALUE ? null : unitPickerValue === ADD_NEW_UNIT_VALUE ? customUnit.trim() : unitPickerValue;
 
-    if (!newName.trim() || !newCategory || !resolvedUnit) {
-      Alert.alert('Missing details', 'A product needs a name, category, and unit before it can be saved.');
+    if (!newName.trim() || !newCategory || (unitPickerValue === ADD_NEW_UNIT_VALUE && !resolvedUnit)) {
+      Alert.alert('Missing details', 'A product needs a name and category, plus a valid custom unit when selected.');
       return;
     }
 
@@ -104,6 +105,7 @@ export default function IngredientPickerModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={resetAndClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={resetAndClose}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
         <TouchableOpacity activeOpacity={1} style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <Text style={styles.title}>Select ingredient</Text>
 
@@ -155,6 +157,7 @@ export default function IngredientPickerModal({
           )}
 
           {showCreateForm && (
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <View>
               <Text style={styles.label}>Product name</Text>
               <NeumoInset borderRadius={neumo.radiusSm} style={styles.fieldInsetWrap}>
@@ -219,8 +222,10 @@ export default function IngredientPickerModal({
                 </TouchableOpacity>
               </View>
             </View>
+            </ScrollView>
           )}
         </TouchableOpacity>
+        </KeyboardAvoidingView>
       </TouchableOpacity>
     </Modal>
   );
@@ -231,6 +236,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(58,67,88,0.35)',
     justifyContent: 'flex-end',
+  },
+  keyboardAvoiding: {
+    width: '100%',
   },
   sheet: {
     backgroundColor: neumo.background,

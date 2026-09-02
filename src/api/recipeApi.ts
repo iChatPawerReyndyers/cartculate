@@ -39,7 +39,9 @@ function normalizeRecipe(r: RecipeResponse): Recipe {
       defaultPrice: Number(ing.defaultPrice),
       isCustomRouted: ing.isCustomRouted,
       isOptional: ing.isOptional,
-      addToCart: ing.addToCart,
+      // Older backend rows may not include this field yet; preserve the
+      // form's checked-by-default behavior without overriding explicit false.
+      addToCart: ing.addToCart !== false,
     })),
   };
 }
