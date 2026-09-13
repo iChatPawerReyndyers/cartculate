@@ -2,8 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, FlatList, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { neumo, neumoText, NeumoRaised, NeumoInset } from '../utils/neumorphic';
 import { Item } from '../types';
+import { CategoryDefaultStore } from '../types';
 import { createItem } from '../api/itemApi';
+import { updateStorePrices } from '../api/storePriceApi';
 import { UNIT_OPTIONS, UNIT_MAX_LENGTH } from '../utils/units';
+import { sanitizeDecimalInput, isValidPositiveNumber } from '../utils/inputSanitization';
 import SelectField from './SelectField';
 
 const ADD_NEW_UNIT_VALUE = '__add_new_unit__';
@@ -15,6 +18,7 @@ interface IngredientPickerModalProps {
   items: Item[];
   /** Category options for the inline "add new product" form - same list PriceCatalogView builds via mergeCategories(). */
   categories: string[];
+  categoryDefaultStores: CategoryDefaultStore[];
   onCancel: () => void;
   onSelect: (item: Item) => void;
   /** Bubbles a freshly-created product up to the parent (RecipeScreen), so
@@ -35,6 +39,7 @@ export default function IngredientPickerModal({
   visible,
   items,
   categories,
+  categoryDefaultStores,
   onCancel,
   onSelect,
   onItemCreated,
@@ -45,6 +50,7 @@ export default function IngredientPickerModal({
   const [newCategory, setNewCategory] = useState('');
   const [unitPickerValue, setUnitPickerValue] = useState<string>(NO_UNIT_VALUE);
   const [customUnit, setCustomUnit] = useState('');
+  const [priceText, setPriceText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   const results = useMemo(() => {
@@ -60,6 +66,7 @@ export default function IngredientPickerModal({
     setNewCategory('');
     setUnitPickerValue(NO_UNIT_VALUE);
     setCustomUnit('');
+    setPriceText('');
     onCancel();
   };
 
@@ -73,20 +80,32 @@ export default function IngredientPickerModal({
     setNewCategory(categories[0] ?? '');
     setUnitPickerValue(NO_UNIT_VALUE);
     setCustomUnit('');
+    setPriceText('');
     setShowCreateForm(true);
   };
 
   const handleSaveNewProduct = async () => {
     const resolvedUnit = unitPickerValue === NO_UNIT_VALUE ? null : unitPickerValue === ADD_NEW_UNIT_VALUE ? customUnit.trim() : unitPickerValue;
+    const defaultStoreId = categoryDefaultStores.find((entry) => entry.category === newCategory)?.storeId ?? null;
+    const resolvedPrice = priceText.trim() === '' ? 0 : parseFloat(priceText);
 
     if (!newName.trim() || !newCategory || (unitPickerValue === ADD_NEW_UNIT_VALUE && !resolvedUnit)) {
       Alert.alert('Missing details', 'A product needs a name and category, plus a valid custom unit when selected.');
       return;
     }
+    if (!isValidPositiveNumber(priceText.trim() === '' ? '0' : priceText, true)) {
+      Alert.alert('Check price', 'Enter a valid default price or leave it blank for 0.');
+      return;
+    }
+    if (!defaultStoreId) {
+      Alert.alert('Default store required', 'Set a default store for this category in the Pricing tab first.');
+      return;
+    }
 
     setIsSaving(true);
     try {
-      const created = await createItem(newName.trim(), newCategory, resolvedUnit, /* isIngredient */ true);
+      const created = await createItem(newName.trim(), newCategory, resolvedUnit, /* isIngredient */ true, defaultStoreId);
+      await updateStorePrices(defaultStoreId, [{ itemId: created.id, priceAmount: resolvedPrice }], 'MANUAL');
       onItemCreated(created);
       onSelect(created);
       resetAndClose();
@@ -178,6 +197,25 @@ export default function IngredientPickerModal({
                 sheetTitle="Category"
                 onChange={setNewCategory}
               />
+
+              <Text style={[styles.label, styles.fieldSpacingTop]}>Default store</Text>
+              <NeumoInset borderRadius={neumo.radiusSm} style={styles.defaultStoreInset}>
+                <Text style={styles.defaultStoreText}>
+                  {categoryDefaultStores.find((entry) => entry.category === newCategory)?.storeName ?? 'None set'}
+                </Text>
+              </NeumoInset>
+
+              <Text style={[styles.label, styles.fieldSpacingTop]}>Default price</Text>
+              <NeumoInset borderRadius={neumo.radiusSm} style={styles.fieldInsetWrap}>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={priceText}
+                  onChangeText={(text) => setPriceText(sanitizeDecimalInput(text, 2))}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00 (optional)"
+                  placeholderTextColor={neumo.textMuted}
+                />
+              </NeumoInset>
 
               <Text style={[styles.label, styles.fieldSpacingTop]}>Unit</Text>
               <SelectField
@@ -319,6 +357,15 @@ const styles = StyleSheet.create({
   },
   fieldSpacingTop: {
     marginTop: 12,
+  },
+  defaultStoreInset: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  defaultStoreText: {
+    ...neumoText.body,
+    fontSize: 14,
+    color: neumo.textPrimary,
   },
   fieldInsetWrap: {
     marginBottom: 2,

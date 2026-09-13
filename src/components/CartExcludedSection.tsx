@@ -14,6 +14,7 @@ interface CartExcludedSectionProps {
   onPantryTreasureFound: (rowId: string, reason: string) => void;
   onToggleChecked: (rowId: string, checked: boolean) => void;
   onRequestMove: (item: ConsolidatedItem) => void;
+  onEditPrice: (item: ConsolidatedItem) => void;
 }
 
 /**
@@ -38,6 +39,7 @@ export default function CartExcludedSection({
   onPantryTreasureFound,
   onToggleChecked,
   onRequestMove,
+  onEditPrice,
 }: CartExcludedSectionProps) {
   const groupedByCategory = useMemo(() => {
     const map = new Map<string, ConsolidatedItem[]>();
@@ -75,6 +77,7 @@ export default function CartExcludedSection({
               onPantryTreasureFound={onPantryTreasureFound}
               onToggleChecked={onToggleChecked}
               onRequestMove={onRequestMove}
+              onEditPrice={onEditPrice}
             />
           ))}
         </View>

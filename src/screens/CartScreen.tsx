@@ -22,6 +22,7 @@ import CartItem from '../components/CartItem';
 import ReconciliationModal from '../components/ReconciliationModal';
 import MasterResetModal from '../components/MasterResetModal';
 import MoveToStoreModal from '../components/MoveToStoreModal';
+import EditPriceModal from '../components/EditPriceModal';
 import { consolidateCart, groupByStatus, groupByCategory, calculateGrandTotal, buildMissingCatalogItems, CatalogItemWithPrice } from '../utils/cartLogic';
 import { fetchUserMode, updateUserMode } from '../api/userApi';
 import { fetchItems } from '../api/itemApi';
@@ -61,6 +62,7 @@ interface CartScreenProps {
   onNavigateToScanner?: () => void;
   onMoveItem: (itemId: string, fromStoreId: string, toStoreId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
+  onUpdatePrice: (itemId: string, storeId: string, price: number) => Promise<void>;
 }
 
 /**
@@ -86,6 +88,7 @@ export default function CartScreen({
   onNavigateToScanner,
   onMoveItem,
   onRefresh,
+  onUpdatePrice,
 }: CartScreenProps) {
   const [mode, setMode] = useState<UserMode>('HOME');
   const [modeLoading, setModeLoading] = useState(true);
@@ -111,6 +114,8 @@ export default function CartScreen({
   const [searchText, setSearchText] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const [editingPriceItem, setEditingPriceItem] = useState<ConsolidatedItem | null>(null);
+  const [isSavingPrice, setIsSavingPrice] = useState(false);
 
   useEffect(() => {
     fetchStores()
@@ -170,6 +175,17 @@ export default function CartScreen({
       setRefreshing(false);
     }
   }, [onRefresh]);
+
+  const handleSavePrice = useCallback(async (price: number) => {
+    if (!editingPriceItem) return;
+    setIsSavingPrice(true);
+    try {
+      await onUpdatePrice(editingPriceItem.itemId, editingPriceItem.storeId, price);
+      setEditingPriceItem(null);
+    } finally {
+      setIsSavingPrice(false);
+    }
+  }, [editingPriceItem, onUpdatePrice]);
 
   useEffect(() => {
     fetchUserMode(CURRENT_USER_ID)
@@ -420,6 +436,7 @@ export default function CartScreen({
                   onPantryTreasureFound={onPantryTreasureFound}
                   onToggleChecked={handleToggleCheckedAnimated}
                   onRequestMove={handleRequestMove}
+                  onEditPrice={setEditingPriceItem}
                 />
               );
             })}
@@ -435,6 +452,7 @@ export default function CartScreen({
                 onPantryTreasureFound={onPantryTreasureFound}
                 onToggleChecked={handleToggleCheckedAnimated}
                 onRequestMove={handleRequestMove}
+                onEditPrice={setEditingPriceItem}
               />
             )}
           </>
@@ -456,6 +474,7 @@ export default function CartScreen({
                 onPantryTreasureFound={onPantryTreasureFound}
                 onToggleChecked={handleToggleCheckedAnimated}
                 onRequestMove={handleRequestMove}
+                onEditPrice={setEditingPriceItem}
               />
             ))}
             {itemsToBuy.length === 0 && (
@@ -476,6 +495,7 @@ export default function CartScreen({
                 onPantryTreasureFound={onPantryTreasureFound}
                 onToggleChecked={handleToggleCheckedAnimated}
                 onRequestMove={handleRequestMove}
+                onEditPrice={setEditingPriceItem}
               />
             ))}
             {stillAtHome.length === 0 && (
@@ -496,6 +516,7 @@ export default function CartScreen({
                 onPantryTreasureFound={onPantryTreasureFound}
                 onToggleChecked={handleToggleCheckedAnimated}
                 onRequestMove={handleRequestMove}
+                onEditPrice={setEditingPriceItem}
               />
             ))}
             {excludedWithCatalog.length === 0 && (
@@ -519,6 +540,7 @@ export default function CartScreen({
                 onPantryTreasureFound={onPantryTreasureFound}
                 onToggleChecked={handleToggleCheckedAnimated}
                 onRequestMove={handleRequestMove}
+                onEditPrice={setEditingPriceItem}
               />
             ))}
             {categoryGroups.length === 0 && (
@@ -535,6 +557,7 @@ export default function CartScreen({
               onPantryTreasureFound={onPantryTreasureFound}
               onToggleChecked={handleToggleCheckedAnimated}
               onRequestMove={handleRequestMove}
+              onEditPrice={setEditingPriceItem}
             />
           </>
         )}
@@ -574,6 +597,16 @@ export default function CartScreen({
         visible={showResetConfirm}
         onCancel={() => setShowResetConfirm(false)}
         onConfirm={handleConfirmReset}
+      />
+
+      <EditPriceModal
+        visible={editingPriceItem !== null}
+        itemName={editingPriceItem?.itemName ?? ''}
+        storeName={editingPriceItem?.storeName ?? ''}
+        currentPrice={editingPriceItem?.price ?? 0}
+        isSaving={isSavingPrice}
+        onCancel={() => setEditingPriceItem(null)}
+        onSave={handleSavePrice}
       />
     </View>
   );

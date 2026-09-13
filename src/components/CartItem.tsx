@@ -17,6 +17,7 @@ interface CartItemProps {
   showStoreName?: boolean;
   /** Long-pressing the item name opens a "move to a different store" picker - e.g. "only need one thing from Puregold, might as well get it at S&R instead." Optional so callers that don't wire it up (none currently) simply don't get the long-press behavior. */
   onRequestMove?: (item: ConsolidatedItem) => void;
+  onEditPrice?: (item: ConsolidatedItem) => void;
 }
 
 /**
@@ -38,6 +39,7 @@ export default function CartItem({
   onToggleChecked,
   showStoreName = false,
   onRequestMove,
+  onEditPrice,
 }: CartItemProps) {
   const [expanded, setExpanded] = useState(false);
   const [reasonPickerRowId, setReasonPickerRowId] = useState<string | null>(null);
@@ -137,9 +139,11 @@ export default function CartItem({
               {showStoreName ? `${item.storeName} · ` : ''}Total needed: {formatQuantityValue(item.totalQuantity)} · Have: {formatQuantityValue(item.totalPantryQty)}
             </Text>
           ) : (
+            <TouchableOpacity onPress={() => onEditPrice?.(item)} disabled={!onEditPrice} activeOpacity={0.7}>
             <Text style={styles.itemPrice}>
               {showStoreName ? `${item.storeName} · ` : ''}₱{formatCurrency(item.price)} each
             </Text>
+            </TouchableOpacity>
           )}
         </TouchableOpacity>
 

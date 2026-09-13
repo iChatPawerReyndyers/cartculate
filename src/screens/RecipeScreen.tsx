@@ -5,9 +5,10 @@ import NewRecipeModal from '../components/NewRecipeModal';
 import { fetchRecipes, createRecipe, updateRecipe, deleteRecipe, updateMultiplier, RecipeIngredientInput } from '../api/recipeApi';
 import { fetchItems } from '../api/itemApi';
 import { fetchStores, Store } from '../api/storeApi';
+import { fetchCategoryDefaultStores } from '../api/categoryDefaultStoreApi';
 import { CURRENT_USER_ID } from '../api/config';
 import { ApiError } from '../api/httpClient';
-import { Item, Recipe } from '../types';
+import { CategoryDefaultStore, Item, Recipe } from '../types';
 import { neumo, neumoText, NeumoRaised, NeumoInset } from '../utils/neumorphic';
 import { cachedFetch, CACHE_KEYS } from '../utils/cache';
 
@@ -29,6 +30,7 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const [categoryDefaultStores, setCategoryDefaultStores] = useState<CategoryDefaultStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
@@ -43,7 +45,7 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
     setLoading(true);
     let usedCache = false;
     try {
-      const [recipeData, itemData, storeData] = await Promise.all([
+      const [recipeData, itemData, storeData, categoryDefaults] = await Promise.all([
         cachedFetch(CACHE_KEYS.recipes(CURRENT_USER_ID), () => fetchRecipes(CURRENT_USER_ID), (cached) => {
           // Cached recipes are enough to render the main list - drop the
           // spinner right away rather than waiting on all three fetches,
@@ -55,10 +57,12 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
         }),
         cachedFetch(CACHE_KEYS.items, fetchItems, setItems),
         cachedFetch(CACHE_KEYS.stores, fetchStores, setStores),
+        fetchCategoryDefaultStores(),
       ]);
       setRecipes(recipeData);
       setItems(itemData);
       setStores(storeData);
+      setCategoryDefaultStores(categoryDefaults);
       setLoadError(null);
     } catch (err) {
       // If cached recipes are already on screen, a failed background
@@ -154,6 +158,7 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
           const created = await createRecipe(CURRENT_USER_ID, { name, ingredients });
           setRecipes((current) => [...current, created]);
         }
+        onCartChanged();
         setModalMode(null);
         setEditingRecipe(undefined);
       } catch (err) {
@@ -162,7 +167,7 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
         setIsSavingRecipe(false);
       }
     },
-    [modalMode, editingRecipe]
+    [modalMode, editingRecipe, onCartChanged]
   );
 
   return (
@@ -246,6 +251,7 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
         mode={modalMode ?? 'add'}
         items={items}
         stores={stores}
+        categoryDefaultStores={categoryDefaultStores}
         existingRecipe={editingRecipe}
         onCancel={() => {
           setModalMode(null);

@@ -15,6 +15,7 @@ interface CategorySectionProps {
   onPantryTreasureFound: (rowId: string, reason: string) => void;
   onToggleChecked: (rowId: string, checked: boolean) => void;
   onRequestMove: (item: ConsolidatedItem) => void;
+  onEditPrice: (item: ConsolidatedItem) => void;
 }
 
 /** VISUAL: category title now uses the shared neumorphic text tokens (font family/weight only) - no structural changes, CartItem cards below already carry the neumorphic card look. */
@@ -29,6 +30,7 @@ export default function CategorySection({
   onPantryTreasureFound,
   onToggleChecked,
   onRequestMove,
+  onEditPrice,
 }: CategorySectionProps) {
   return (
     <View style={styles.section}>
@@ -46,6 +48,7 @@ export default function CategorySection({
           onPantryTreasureFound={onPantryTreasureFound}
           onToggleChecked={onToggleChecked}
           onRequestMove={onRequestMove}
+          onEditPrice={onEditPrice}
         />
       ))}
     </View>

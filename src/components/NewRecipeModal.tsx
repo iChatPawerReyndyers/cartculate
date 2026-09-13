@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet,
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Item, Recipe } from '../types';
 import { Store } from '../api/storeApi';
+import { CategoryDefaultStore } from '../types';
 import { RecipeIngredientInput } from '../api/recipeApi';
 import { sanitizeDecimalInput, sanitizeIntegerInput, isValidPositiveNumber } from '../utils/inputSanitization';
 import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
@@ -46,6 +47,7 @@ interface NewRecipeModalProps {
   mode: 'add' | 'edit';
   items: Item[];
   stores: Store[];
+  categoryDefaultStores: CategoryDefaultStore[];
   existingRecipe?: Recipe;
   onCancel: () => void;
   onSave: (name: string, ingredients: RecipeIngredientInput[]) => void;
@@ -86,6 +88,7 @@ export default function NewRecipeModal({
   mode,
   items,
   stores,
+  categoryDefaultStores,
   existingRecipe,
   onCancel,
   onSave,
@@ -137,7 +140,11 @@ export default function NewRecipeModal({
       setCustomUnits([]);
       setRows([makeEmptyRow()]);
     }
-  }, [visible, mode, existingRecipe, ingredientItems]);
+    // Initialize once per modal session. The parent item list changes when
+    // the inline ingredient picker creates a product; re-running this effect
+    // then would wipe the row that was just selected.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, mode, existingRecipe]);
 
   const handleAddRow = () => {
     if (ingredientItems.length === 0) {
@@ -378,6 +385,7 @@ export default function NewRecipeModal({
         visible={pickerRowKey !== null}
         items={ingredientItems}
         categories={categories}
+        categoryDefaultStores={categoryDefaultStores}
         onCancel={() => setPickerRowKey(null)}
         onSelect={(item) => {
           if (pickerRowKey) updateRow(pickerRowKey, { itemId: item.id });

@@ -20,6 +20,7 @@ interface StoreSectionProps {
   onPantryTreasureFound: (rowId: string, reason: string) => void;
   onToggleChecked: (rowId: string, checked: boolean) => void;
   onRequestMove: (item: ConsolidatedItem) => void;
+  onEditPrice: (item: ConsolidatedItem) => void;
 }
 
 /**
@@ -42,6 +43,7 @@ export default function StoreSection({
   onPantryTreasureFound,
   onToggleChecked,
   onRequestMove,
+  onEditPrice,
 }: StoreSectionProps) {
   const displayItems = useMemo(() => {
     if (!isStarted) return store.items;
@@ -87,6 +89,7 @@ export default function StoreSection({
           onPantryTreasureFound={onPantryTreasureFound}
           onToggleChecked={onToggleChecked}
           onRequestMove={onRequestMove}
+          onEditPrice={onEditPrice}
         />
       ))}
     </View>

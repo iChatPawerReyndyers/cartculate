@@ -19,6 +19,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import TabIcon from './src/components/TabIcon';
 import { fetchCart, adjustCartItem, setPantryOverride, setCheckoutStatus, masterResetCheckout, completeCheckout, moveCartItem } from './src/api/cartApi';
 import { createPurchase } from './src/api/purchaseApi';
+import { updateStorePrices } from './src/api/storePriceApi';
 import { CURRENT_USER_ID, setCurrentUserId } from './src/api/config';
 import { ApiError } from './src/api/httpClient';
 import { AuthUser } from './src/api/authApi';
@@ -177,6 +178,14 @@ function AppContent() {
       } catch (err) {
         Alert.alert('Could not move item', 'Please check your connection and try again.');
       }
+    },
+    [loadCart]
+  );
+
+  const handleUpdateCartPrice = useCallback(
+    async (itemId: string, storeId: string, price: number) => {
+      await updateStorePrices(storeId, [{ itemId, priceAmount: price }], 'MANUAL');
+      await loadCart();
     },
     [loadCart]
   );
@@ -426,6 +435,7 @@ function AppContent() {
             onNavigateToScanner={() => setActiveTab(TABS.SCAN)}
             onMoveItem={handleMoveCartItem}
             onRefresh={loadCart}
+            onUpdatePrice={handleUpdateCartPrice}
           />
         )}
         {activeTab === TABS.RECIPES && (
