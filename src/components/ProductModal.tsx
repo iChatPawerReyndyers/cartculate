@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardHeight } from '../utils/useKeyboardHeight';
+import { getUserFriendlyErrorMessage } from '../api/httpClient';
 import { Store, createStore } from '../api/storeApi';
 import { sanitizeDecimalInput, isValidPositiveNumber } from '../utils/inputSanitization';
 import { UNIT_OPTIONS, UNIT_MAX_LENGTH } from '../utils/units';
 import { CategoryDefaultStore } from '../types';
 import SelectField from './SelectField';
 import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
+import InlineErrorMessage from './InlineErrorMessage';
 
 const ADD_NEW_CATEGORY_VALUE = '__add_new_category__';
 const ADD_NEW_STORE_VALUE = '__add_new_store__';
@@ -132,6 +135,17 @@ export default function ProductModal({
   onStoreCreated,
 }: ProductModalProps) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
+  // See useKeyboardHeight.ts - computed by hand since KeyboardAvoidingView
+  // doesn't reliably track the keyboard from inside a <Modal>. Keeps this
+  // sheet's existing 88%-of-screen sizing when the keyboard is hidden, and
+  // lifts it clear of the keyboard (shrinking to fit) when it's shown.
+  const sheetMarginBottom = keyboardHeight;
+  const sheetMaxHeight =
+    keyboardHeight > 0
+      ? Math.min(windowHeight * 0.88, windowHeight - keyboardHeight - insets.top - 12)
+      : windowHeight * 0.88;
   const [name, setName] = useState('');
   const [categoryPickerValue, setCategoryPickerValue] = useState('');
   const [customCategoryText, setCustomCategoryText] = useState('');
@@ -142,9 +156,11 @@ export default function ProductModal({
   const [priceRows, setPriceRows] = useState<PriceRow[]>([]);
   const [originalStoreIds, setOriginalStoreIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
+    setSaveError(null);
     setName(existingName ?? '');
     const initialCategory = existingCategory ?? categories[0] ?? '';
     setCategoryPickerValue(initialCategory);
@@ -294,6 +310,10 @@ export default function ProductModal({
       );
       return;
     }
+    if (mode === 'add' && priceRows.length === 0) {
+      Alert.alert('Store required', 'Select a store for this product before saving.');
+      return;
+    }
     for (const row of priceRows) {
       if (row.storeId === ADD_NEW_STORE_VALUE && !row.newStoreText.trim()) {
         Alert.alert('Store name required', 'Type a name for the new store, or remove that price row.');
@@ -369,7 +389,9 @@ export default function ProductModal({
         clearedPersonalStoreIds,
       });
     } catch (err) {
-      Alert.alert('Could not save product', 'Please check your connection and try again.');
+      setSaveError(
+        getUserFriendlyErrorMessage(err, 'save this product')
+      );
     } finally {
       setIsSaving(false);
     }
@@ -378,14 +400,19 @@ export default function ProductModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
-        <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
+        <View
+          style={[
+            styles.sheet,
+            { paddingBottom: 20 + insets.bottom, marginBottom: sheetMarginBottom, maxHeight: sheetMaxHeight },
+          ]}
+        >
           <ScrollView
             style={styles.formScroll}
             contentContainerStyle={styles.formScrollContent}
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.title}>{mode === 'add' ? 'Add product' : 'Edit product'}</Text>
+            {saveError && <InlineErrorMessage title="Could not save product" message={saveError} />}
 
             <Text style={styles.label}>Name</Text>
             <NeumoInset borderRadius={neumo.radiusSm} style={styles.nameInsetWrap}>
@@ -556,7 +583,6 @@ export default function ProductModal({
             </TouchableOpacity>
           </View>
         </View>
-        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -568,15 +594,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(58,67,88,0.4)',
     justifyContent: 'flex-end',
   },
-  keyboardAvoiding: {
-    width: '100%',
-  },
   sheet: {
     backgroundColor: neumo.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    maxHeight: '88%',
+    width: '100%',
+    // maxHeight is set inline (see sheetMaxHeight) so it can react to the keyboard.
   },
   /**
    * BUGFIX (shadow clipping): same issue and same fix as

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Item, Recipe } from '../types';
 import { Store } from '../api/storeApi';
+import { StorePriceEntry } from '../api/storePriceApi';
 import { CategoryDefaultStore } from '../types';
 import { RecipeIngredientInput } from '../api/recipeApi';
 import { sanitizeDecimalInput, sanitizeIntegerInput, isValidPositiveNumber } from '../utils/inputSanitization';
@@ -11,6 +12,12 @@ import SelectField from './SelectField';
 import IngredientPickerModal from './IngredientPickerModal';
 import { mergeCategories } from '../utils/categories';
 import { UNIT_OPTIONS, UNIT_MAX_LENGTH } from '../utils/units';
+import { useKeyboardHeight } from '../utils/useKeyboardHeight';
+
+/** Sheet targets 90% of screen height when the keyboard is hidden (bumped
+ * up from the old fixed 88% per request - this modal has the most content
+ * of any sheet in the app, so it benefits most from the extra room). */
+const SHEET_HEIGHT_RATIO = 0.9;
 
 const AUTO_STORE_VALUE = '__auto__';
 const NO_UNIT_VALUE = '__no_unit__';
@@ -47,6 +54,7 @@ interface NewRecipeModalProps {
   mode: 'add' | 'edit';
   items: Item[];
   stores: Store[];
+  storePrices: StorePriceEntry[];
   categoryDefaultStores: CategoryDefaultStore[];
   existingRecipe?: Recipe;
   onCancel: () => void;
@@ -74,10 +82,14 @@ function makeEmptyRow(defaultItemId: string | null = null): IngredientRow {
  * VISUAL: previously the odd one out - this modal used native OS <Picker>
  * dropdowns in a fixed-height (70%) sheet, while ProductModal (Pricing
  * tab) already used the custom SelectField bottom-sheet dropdown in a
- * content-based (maxHeight 88%) sheet. Now matches ProductModal exactly:
- * SelectField for Ingredient/Unit/Store, maxHeight sheet, and the whole
- * form (not just the ingredient rows) scrolls together with Cancel/Save
- * pinned below - see ProductModal.tsx for the reference pattern. No
+ * content-based (maxHeight) sheet. Now matches ProductModal's field
+ * treatment: SelectField for Ingredient/Unit/Store, and the whole form
+ * (not just the ingredient rows) scrolls together with Cancel/Save pinned
+ * below - see ProductModal.tsx for the reference pattern. Sheet sizing
+ * itself now goes further than ProductModal's static 88%: it targets 90%
+ * of screen height and is lifted clear of the keyboard by hand (see
+ * useKeyboardHeight.ts) instead of relying on KeyboardAvoidingView, which
+ * doesn't track the keyboard reliably from inside a <Modal>. No ingredient
  * logic changed. Each ingredient card still passes `fullWidth` to
  * NeumoRaised - see neumorphic.tsx's file header for why Shadow-based
  * surfaces need that explicitly to stretch instead of shrinking to
@@ -88,6 +100,7 @@ export default function NewRecipeModal({
   mode,
   items,
   stores,
+  storePrices,
   categoryDefaultStores,
   existingRecipe,
   onCancel,
@@ -96,10 +109,26 @@ export default function NewRecipeModal({
   onItemCreated,
 }: NewRecipeModalProps) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
   const [name, setName] = useState('');
   const [rows, setRows] = useState<IngredientRow[]>([]);
   const [pickerRowKey, setPickerRowKey] = useState<string | null>(null);
   const [customUnits, setCustomUnits] = useState<string[]>([]);
+
+  // See useKeyboardHeight.ts for why this is computed by hand instead of
+  // leaving it to KeyboardAvoidingView: this sheet lives inside a <Modal>,
+  // where KeyboardAvoidingView doesn't reliably track the keyboard. When
+  // the keyboard is hidden the sheet is 90% of the screen, anchored to the
+  // bottom (see `overlay`'s justifyContent:'flex-end'). When the keyboard
+  // shows, `sheetMarginBottom` lifts the whole sheet clear of it, and
+  // `sheetMaxHeight` shrinks by the same amount so the lifted sheet still
+  // fits on screen instead of being pushed off the top.
+  const sheetMarginBottom = keyboardHeight;
+  const sheetMaxHeight =
+    keyboardHeight > 0
+      ? Math.min(windowHeight * SHEET_HEIGHT_RATIO, windowHeight - keyboardHeight - insets.top - 12)
+      : windowHeight * SHEET_HEIGHT_RATIO;
 
   const categories = useMemo(() => mergeCategories(items.map((i) => i.category)), [items]);
 
@@ -165,6 +194,19 @@ export default function NewRecipeModal({
     setRows((current) => current.map((row) => (row.key === key ? { ...row, ...updates } : row)));
   };
 
+  const resolveTargetStoreId = (item: Item): string => {
+    const availableStoreIds = new Set(stores.map((store) => store.id));
+    if (item.defaultStoreId && availableStoreIds.has(item.defaultStoreId)) return item.defaultStoreId;
+
+    const categoryDefaultStoreId = categoryDefaultStores.find((entry) => entry.category === item.category)?.storeId;
+    if (categoryDefaultStoreId && availableStoreIds.has(categoryDefaultStoreId)) return categoryDefaultStoreId;
+
+    const itemPrices = storePrices
+      .filter((price) => price.itemId === item.id && availableStoreIds.has(price.storeId))
+      .sort((a, b) => a.priceAmount - b.priceAmount);
+    return itemPrices[0]?.storeId ?? AUTO_STORE_VALUE;
+  };
+
   const commitCustomUnit = (rowKey: string, draft: string | null) => {
     const value = draft?.trim() ?? '';
     if (!value) return;
@@ -213,8 +255,12 @@ export default function NewRecipeModal({
     <>
         <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
         <View style={styles.overlay}>
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
-          <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
+          <View
+            style={[
+              styles.sheet,
+              { paddingBottom: 20 + insets.bottom, marginBottom: sheetMarginBottom, maxHeight: sheetMaxHeight },
+            ]}
+          >
             <ScrollView
               style={styles.formScroll}
               contentContainerStyle={styles.formScrollContent}
@@ -377,7 +423,6 @@ export default function NewRecipeModal({
               </TouchableOpacity>
             </View>
           </View>
-          </KeyboardAvoidingView>
         </View>
         </Modal>
 
@@ -388,7 +433,12 @@ export default function NewRecipeModal({
         categoryDefaultStores={categoryDefaultStores}
         onCancel={() => setPickerRowKey(null)}
         onSelect={(item) => {
-          if (pickerRowKey) updateRow(pickerRowKey, { itemId: item.id });
+          if (pickerRowKey) {
+            updateRow(pickerRowKey, {
+              itemId: item.id,
+              targetStoreId: resolveTargetStoreId(item),
+            });
+          }
           setPickerRowKey(null);
         }}
         onItemCreated={onItemCreated}
@@ -403,15 +453,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(58,67,88,0.4)',
     justifyContent: 'flex-end',
   },
-  keyboardAvoiding: {
-    width: '100%',
-  },
   sheet: {
     backgroundColor: neumo.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    maxHeight: '88%',
+    width: '100%',
+    // maxHeight is set inline (see sheetMaxHeight) so it can react to the
+    // keyboard - the 90%-of-screen default lives in SHEET_HEIGHT_RATIO.
   },
   /**
    * BUGFIX: without flex:1 here, this ScrollView sized itself to its full

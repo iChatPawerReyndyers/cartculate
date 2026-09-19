@@ -6,6 +6,7 @@ import { fetchRecipes, createRecipe, updateRecipe, deleteRecipe, updateMultiplie
 import { fetchItems } from '../api/itemApi';
 import { fetchStores, Store } from '../api/storeApi';
 import { fetchCategoryDefaultStores } from '../api/categoryDefaultStoreApi';
+import { fetchAllStorePrices, StorePriceEntry } from '../api/storePriceApi';
 import { CURRENT_USER_ID } from '../api/config';
 import { ApiError } from '../api/httpClient';
 import { CategoryDefaultStore, Item, Recipe } from '../types';
@@ -30,6 +31,7 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const [storePrices, setStorePrices] = useState<StorePriceEntry[]>([]);
   const [categoryDefaultStores, setCategoryDefaultStores] = useState<CategoryDefaultStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
     setLoading(true);
     let usedCache = false;
     try {
-      const [recipeData, itemData, storeData, categoryDefaults] = await Promise.all([
+      const [recipeData, itemData, storeData, categoryDefaults, priceData] = await Promise.all([
         cachedFetch(CACHE_KEYS.recipes(CURRENT_USER_ID), () => fetchRecipes(CURRENT_USER_ID), (cached) => {
           // Cached recipes are enough to render the main list - drop the
           // spinner right away rather than waiting on all three fetches,
@@ -58,11 +60,13 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
         cachedFetch(CACHE_KEYS.items, fetchItems, setItems),
         cachedFetch(CACHE_KEYS.stores, fetchStores, setStores),
         fetchCategoryDefaultStores(),
+        cachedFetch(CACHE_KEYS.storePrices, fetchAllStorePrices, setStorePrices),
       ]);
       setRecipes(recipeData);
       setItems(itemData);
       setStores(storeData);
       setCategoryDefaultStores(categoryDefaults);
+      setStorePrices(priceData);
       setLoadError(null);
     } catch (err) {
       // If cached recipes are already on screen, a failed background
@@ -251,6 +255,7 @@ export default function RecipeScreen({ onCartChanged }: RecipeScreenProps) {
         mode={modalMode ?? 'add'}
         items={items}
         stores={stores}
+        storePrices={storePrices}
         categoryDefaultStores={categoryDefaultStores}
         existingRecipe={editingRecipe}
         onCancel={() => {

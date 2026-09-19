@@ -278,7 +278,7 @@ export default function PriceCatalogView() {
         setShowAddModal(false);
         await loadCatalog();
       } catch (err) {
-        Alert.alert('Could not save product', 'Please check your connection and try again.');
+        throw err;
       }
     },
     [loadCatalog]
@@ -333,56 +333,25 @@ export default function PriceCatalogView() {
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.listContent}>
-        <NeumoRaised fullWidth style={styles.listInner}>
-          <View style={styles.checkboxHeader}>
-            <Text style={styles.checkboxHeaderText}>Cart</Text>
-            <Text style={styles.checkboxHeaderText}>Ingredient</Text>
-          </View>
-          {filtered.map((group, idx) => {
+        {filtered.map((group) => {
             const item = items.find((i) => i.id === group.itemId);
             return (
-              <View key={group.itemId} style={[styles.row, idx === 0 && styles.rowFirst]}>
-                {item && (
-                  <TouchableOpacity
-                    style={styles.leadingCheckboxWrap}
-                    onPress={() => handleToggleIncludeInCart(item)}
-                    activeOpacity={0.7}
-                  >
-                    {item.includeInCart ? (
-                      <NeumoAccentRaised borderRadius={6} distance={3} style={styles.checkboxChecked}>
-                        <Text style={styles.checkmark}>✓</Text>
-                      </NeumoAccentRaised>
-                    ) : (
-                      <NeumoInset borderRadius={6} style={styles.checkboxInset} />
+              <NeumoRaised key={group.itemId} fullWidth style={styles.itemCard}>
+                <TouchableOpacity onPress={() => item && setEditingItem(item)} activeOpacity={0.6}>
+                  <View style={styles.itemHeader}>
+                    <Text style={styles.itemName}>{group.itemName}</Text>
+                    {item && (
+                      <TouchableOpacity
+                        style={styles.deleteButtonWrap}
+                        onPress={() => handleDeleteItem(item)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.deleteIcon}>🗑</Text>
+                      </TouchableOpacity>
                     )}
-                  </TouchableOpacity>
-                )}
-                {item && (
-                  <TouchableOpacity
-                    style={styles.leadingCheckboxWrap}
-                    onPress={() => handleToggleIsIngredient(item)}
-                    activeOpacity={0.7}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: item.isIngredient }}
-                    accessibilityLabel={`${item.name} recipe ingredient setting`}
-                  >
-                    {item.isIngredient ? (
-                      <NeumoAccentRaised borderRadius={6} distance={3} style={styles.checkboxChecked}>
-                        <Text style={styles.checkmark}>✓</Text>
-                      </NeumoAccentRaised>
-                    ) : (
-                      <NeumoInset borderRadius={6} style={styles.checkboxInset} />
-                    )}
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity
-                  style={styles.rowMain}
-                  onPress={() => item && setEditingItem(item)}
-                  activeOpacity={0.6}
-                >
-                  <Text style={styles.itemName}>{group.itemName}</Text>
-                  <View style={styles.rowRight}>
-                    <Text style={styles.priceText} numberOfLines={1}>
+                  </View>
+                  {group.prices.length > 0 && (
+                    <Text style={styles.priceText}>
                       {group.prices.map((p, i) => (
                         <Text key={`${p.storeId}-${i}`}>
                           {i > 0 ? ' · ' : ''}
@@ -391,24 +360,52 @@ export default function PriceCatalogView() {
                         </Text>
                       ))}
                     </Text>
-                  </View>
+                  )}
                 </TouchableOpacity>
                 {item && (
-                  <TouchableOpacity
-                    style={styles.deleteButtonWrap}
-                    onPress={() => handleDeleteItem(item)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.deleteIcon}>🗑</Text>
-                  </TouchableOpacity>
+                  <View style={styles.toggleList}>
+                    <TouchableOpacity
+                      style={styles.toggleRow}
+                      onPress={() => handleToggleIncludeInCart(item)}
+                      activeOpacity={0.7}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: item.includeInCart }}
+                      accessibilityLabel={`${item.name} include in cart`}
+                    >
+                      <Text style={styles.toggleLabel}>Include in cart</Text>
+                      {item.includeInCart ? (
+                        <NeumoAccentRaised borderRadius={6} distance={3} style={styles.checkboxChecked}>
+                          <Text style={styles.checkmark}>✓</Text>
+                        </NeumoAccentRaised>
+                      ) : (
+                        <NeumoInset borderRadius={6} style={styles.checkboxInset} />
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.toggleRow}
+                      onPress={() => handleToggleIsIngredient(item)}
+                      activeOpacity={0.7}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: item.isIngredient }}
+                      accessibilityLabel={`${item.name} include in ingredient list`}
+                    >
+                      <Text style={styles.toggleLabel}>Include in ingredient list</Text>
+                      {item.isIngredient ? (
+                        <NeumoAccentRaised borderRadius={6} distance={3} style={styles.checkboxChecked}>
+                          <Text style={styles.checkmark}>✓</Text>
+                        </NeumoAccentRaised>
+                      ) : (
+                        <NeumoInset borderRadius={6} style={styles.checkboxInset} />
+                      )}
+                    </TouchableOpacity>
+                  </View>
                 )}
-              </View>
+              </NeumoRaised>
             );
           })}
           {filtered.length === 0 && (
             <Text style={styles.emptyText}>No items match "{searchText}".</Text>
           )}
-        </NeumoRaised>
       </ScrollView>
 
       <ProductModal
@@ -500,36 +497,32 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  listInner: {
-    paddingHorizontal: 14,
+  itemCard: {
+    padding: 14,
+    marginBottom: 12,
   },
-  checkboxHeader: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    gap: 28,
-    paddingHorizontal: 12,
-    paddingBottom: 8,
-  },
-  checkboxHeaderText: {
-    ...neumoText.caption,
-    fontSize: 10,
-    color: neumo.textMuted,
-    width: 20,
-    textAlign: 'center',
-  },
-  row: {
+  itemHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  toggleList: {
+    marginTop: 12,
     borderTopWidth: 1,
     borderTopColor: 'rgba(166,176,195,0.3)',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 10,
     gap: 12,
   },
-  rowFirst: {
-    borderTopWidth: 0,
-  },
-  leadingCheckboxWrap: {
-    // no extra margin - `row`'s gap already spaces this from rowMain
+  toggleLabel: {
+    ...neumoText.body,
+    fontSize: 13,
+    flex: 1,
   },
   checkboxInset: {
     width: 20,
@@ -545,19 +538,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
-  },
-  rowMain: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-  },
-  rowRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexShrink: 1,
   },
   itemName: {
     ...neumoText.body,

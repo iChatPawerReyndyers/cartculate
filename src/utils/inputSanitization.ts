@@ -86,6 +86,38 @@ export function isValidPositiveNumber(text: string, allowZero: boolean = false):
 }
 
 /**
+ * Sanitizes a date input as the user types into a plain "YYYY-MM-DD" text
+ * field (used by ReceiptScannerScreen's "which date was this receipt?"
+ * field - no native date-picker dependency is installed in this project,
+ * so a validated text field is the lowest-friction way to add this
+ * without a new native module / pod install). Strips non-digits, then
+ * auto-inserts the two dashes as the user types past 4 and 6 digits, and
+ * caps the whole thing at 8 digits (YYYYMMDD) so it can't run on forever.
+ */
+export function sanitizeDateInput(rawText: string): string {
+  const digits = rawText.replace(/[^0-9]/g, '').slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+}
+
+/**
+ * True only for a real calendar date in "YYYY-MM-DD" form (rejects e.g.
+ * "2026-02-30" - not just a shape/regex check). Used to gate the receipt
+ * "Confirm" button alongside the store-selection check.
+ */
+export function isValidDateInput(text: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!match) return false;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+}
+
+/**
  * Units that have a smaller "display" unit worth converting down to when
  * the quantity would otherwise render as an awkward fraction (kg -> g,
  * L -> mL), each 1000 of the smaller unit to 1 of the larger.

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, Alert, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardHeight } from '../utils/useKeyboardHeight';
 import { Store } from '../api/storeApi';
 import { CategoryDefaultStore } from '../types';
 import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
@@ -36,6 +37,15 @@ export default function CategoryDefaultStoresCard({
   onIngredientDefaultChange,
 }: CategoryDefaultStoresCardProps) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
+  // See useKeyboardHeight.ts - computed by hand since KeyboardAvoidingView
+  // doesn't reliably track the keyboard from inside a <Modal>.
+  const sheetMarginBottom = keyboardHeight;
+  const sheetMaxHeight =
+    keyboardHeight > 0
+      ? Math.min(windowHeight * 0.9, windowHeight - keyboardHeight - insets.top - 12)
+      : windowHeight * 0.9;
   const [managerOpen, setManagerOpen] = useState(false);
   const [pickerCategory, setPickerCategory] = useState<string | null>(null);
   const [addingCategory, setAddingCategory] = useState(false);
@@ -94,8 +104,12 @@ export default function CategoryDefaultStoresCard({
         onRequestClose={() => setManagerOpen(false)}
       >
         <View style={styles.overlay}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
-          <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
+          <View
+            style={[
+              styles.sheet,
+              { paddingBottom: 20 + insets.bottom, marginBottom: sheetMarginBottom, maxHeight: sheetMaxHeight },
+            ]}
+          >
             <View style={styles.sheetHeaderRow}>
               <Text style={styles.sheetTitle}>Category defaults</Text>
               <TouchableOpacity onPress={() => setManagerOpen(false)}>
@@ -179,7 +193,6 @@ export default function CategoryDefaultStoresCard({
               </ScrollView>
             </NeumoInset>
           </View>
-          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -244,15 +257,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(58,67,88,0.4)',
     justifyContent: 'flex-end',
   },
-  keyboardAvoiding: {
-    width: '100%',
-  },
   sheet: {
     backgroundColor: neumo.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    maxHeight: '85%',
+    width: '100%',
+    // maxHeight is set inline (see sheetMaxHeight) so it can react to the keyboard.
   },
   sheetHeaderRow: {
     flexDirection: 'row',

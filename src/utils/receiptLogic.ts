@@ -65,9 +65,17 @@ export interface ReceiptPurchasePayload {
  * receipt-level (a JSON manifest, not one row per item), so this returns a
  * single object instead of an array - totalReceiptSpent is computed as the
  * sum of every line item's (quantity * pricePerUnit).
+ *
+ * purchaseDateOverride: the date the user picked on the "when was this
+ * receipt?" field (see ReceiptScannerScreen) - the AI scan itself never
+ * reads a date off the receipt, so this always reflects what the person
+ * actually confirmed, not just "the moment they happened to tap Scan".
+ * Falls back to scanResult.scannedAt (the scan timestamp) only if no
+ * override is passed, so existing callers/tests keep working unchanged.
  */
 export function buildPurchaseHistoryFromReceipt(
-  scanResult: ReceiptScanResult
+  scanResult: ReceiptScanResult,
+  purchaseDateOverride?: string
 ): ReceiptPurchasePayload {
   const items: ManifestItem[] = scanResult.lineItems.map((line) => ({
     itemId: line.matchedItemId,
@@ -82,7 +90,7 @@ export function buildPurchaseHistoryFromReceipt(
   return {
     storeId: scanResult.storeId,
     totalReceiptSpent,
-    purchaseDate: scanResult.scannedAt,
+    purchaseDate: purchaseDateOverride ?? scanResult.scannedAt,
     items,
   };
 }

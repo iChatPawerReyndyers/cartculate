@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardHeight } from '../utils/useKeyboardHeight';
 import { ConsolidatedItem, ManifestItem } from '../types';
 import {
   buildExpectedManifest,
@@ -41,6 +42,15 @@ export default function ReconciliationModal({
   onScanInstead,
 }: ReconciliationModalProps) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
+  // See useKeyboardHeight.ts - computed by hand since KeyboardAvoidingView
+  // doesn't reliably track the keyboard from inside a <Modal>.
+  const sheetMarginBottom = keyboardHeight;
+  const sheetMaxHeight =
+    keyboardHeight > 0
+      ? Math.min(windowHeight * 0.85, windowHeight - keyboardHeight - insets.top - 12)
+      : windowHeight * 0.85;
   const [actualTotalText, setActualTotalText] = useState('');
   const [priceOverrides, setPriceOverrides] = useState<Record<string, string>>({});
   const [boughtQtyOverrides, setBoughtQtyOverrides] = useState<Record<string, number>>({});
@@ -99,8 +109,12 @@ export default function ReconciliationModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
       <View style={styles.overlay}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
-        <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
+        <View
+          style={[
+            styles.sheet,
+            { paddingBottom: 20 + insets.bottom, marginBottom: sheetMarginBottom, maxHeight: sheetMaxHeight },
+          ]}
+        >
           <Text style={styles.title}>Trip complete?</Text>
           <Text style={styles.subtitle}>
             {storeName} · {originalManifest.length} item{originalManifest.length === 1 ? '' : 's'} checked off
@@ -239,7 +253,6 @@ export default function ReconciliationModal({
             </TouchableOpacity>
           </View>
         </View>
-        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -251,15 +264,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(58,67,88,0.4)',
     justifyContent: 'flex-end',
   },
-  keyboardAvoiding: {
-    width: '100%',
-  },
   sheet: {
     backgroundColor: neumo.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    maxHeight: '85%',
+    width: '100%',
+    // maxHeight is set inline (see sheetMaxHeight) so it can react to the keyboard.
   },
   title: {
     ...neumoText.heading,

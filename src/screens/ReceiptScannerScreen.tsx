@@ -18,7 +18,13 @@ import ReceiptLineItemCard from '../components/ReceiptLineItemCard';
 import PriceCatalogView from '../components/PriceCatalogView';
 import SelectField from '../components/SelectField';
 import { scanReceipt } from '../api/receiptScanApi';
-import { applyManualMatch, isReadyToConfirm, buildStorePriceUpdates, buildPurchaseHistoryFromReceipt } from '../utils/receiptLogic';
+import {
+  applyManualMatch,
+  isReadyToConfirm,
+  buildStorePriceUpdates,
+  buildPurchaseHistoryFromReceipt,
+} from '../utils/receiptLogic';
+import { sanitizeDateInput, isValidDateInput } from '../utils/inputSanitization';
 import { createPurchase } from '../api/purchaseApi';
 import { updatePersonalStorePrices } from '../api/storePriceApi';
 import { fetchStores, createStore, Store } from '../api/storeApi';
@@ -28,6 +34,18 @@ import { ReceiptScanResult } from '../types';
 import { neumo, neumoText, NeumoRaised, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
 
 const ADD_NEW_STORE_VALUE = '__add_new_store__';
+
+/** "2026-09-14T10:03:00" -> "2026-09-14". Used to seed the editable date
+ * field from the scan's own timestamp, and as a fallback if that's ever
+ * missing/malformed. */
+function toDateOnly(isoTimestamp: string): string {
+  const datePart = isoTimestamp.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(datePart) ? datePart : todayDateOnly();
+}
+
+function todayDateOnly(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 type ScreenState = 'idle' | 'processing' | 'reviewing' | 'confirming';
 type SubTab = 'scan' | 'catalog';
@@ -50,6 +68,11 @@ export default function ReceiptScannerScreen() {
   // not just a read-only label.
   const [storePickerValue, setStorePickerValue] = useState<string>('');
   const [newStoreText, setNewStoreText] = useState('');
+  // Seeded from the scan's own timestamp, but always user-editable - the
+  // AI never reads a date off the receipt itself, and a receipt is often
+  // scanned well after the actual shopping trip, so this is a real "when
+  // did this happen?" prompt, not just a read-only "scanned just now" label.
+  const [purchaseDateText, setPurchaseDateText] = useState<string>(todayDateOnly());
 
   useEffect(() => {
     fetchStores()
@@ -72,6 +95,7 @@ export default function ReceiptScannerScreen() {
       setScanResult(result);
       setStorePickerValue(result.storeId);
       setNewStoreText('');
+      setPurchaseDateText(toDateOnly(result.scannedAt));
       setScreenState('reviewing');
     } catch (err) {
       Alert.alert('Scan failed', 'Could not read that receipt. Please try again.');
@@ -105,6 +129,10 @@ export default function ReceiptScannerScreen() {
 
     if (storePickerValue === ADD_NEW_STORE_VALUE && newStoreText.trim().length === 0) {
       Alert.alert('Store name needed', "Type the new store's name before confirming.");
+      return;
+    }
+    if (!isValidDateInput(purchaseDateText)) {
+      Alert.alert('Check the date', 'Enter a valid date (YYYY-MM-DD) for when this receipt was from.');
       return;
     }
 
@@ -145,20 +173,21 @@ export default function ReceiptScannerScreen() {
         'SCAN'
       );
 
-      const receiptPayload = buildPurchaseHistoryFromReceipt(finalScanResult);
+      const receiptPayload = buildPurchaseHistoryFromReceipt(finalScanResult, purchaseDateText);
       await createPurchase(CURRENT_USER_ID, receiptPayload);
 
       Alert.alert('Confirmed', 'Store prices and purchase history updated.');
       setScanResult(null);
       setStorePickerValue('');
       setNewStoreText('');
+      setPurchaseDateText(todayDateOnly());
       setScreenState('idle');
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not save this receipt.';
       Alert.alert('Confirm failed', message);
       setScreenState('reviewing');
     }
-  }, [scanResult, storePickerValue, newStoreText, stores]);
+  }, [scanResult, storePickerValue, newStoreText, purchaseDateText, stores]);
 
   // Wrap the two static tab targets in touch handlers even when rendered
   // as the raised (already-active) pill, so tapping the already-active
@@ -238,7 +267,8 @@ export default function ReceiptScannerScreen() {
 
   const hasValidStoreSelection =
     storePickerValue !== '' && (storePickerValue !== ADD_NEW_STORE_VALUE || newStoreText.trim().length > 0);
-  const readyToConfirm = scanResult ? isReadyToConfirm(scanResult) && hasValidStoreSelection : false;
+  const hasValidDate = isValidDateInput(purchaseDateText);
+  const readyToConfirm = scanResult ? isReadyToConfirm(scanResult) && hasValidStoreSelection && hasValidDate : false;
   const isConfirming = screenState === 'confirming';
 
   const storeOptions = [
@@ -273,7 +303,22 @@ export default function ReceiptScannerScreen() {
             />
           </NeumoInset>
         )}
-        <Text style={styles.subtitle}>Scanned just now</Text>
+
+        <Text style={styles.fieldLabel}>When was this receipt from?</Text>
+        <NeumoInset borderRadius={neumo.radiusSm} style={styles.dateInsetWrap}>
+          <TextInput
+            style={styles.dateInput}
+            value={purchaseDateText}
+            onChangeText={(text) => setPurchaseDateText(sanitizeDateInput(text))}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={neumo.textMuted}
+            keyboardType="number-pad"
+            maxLength={10}
+          />
+        </NeumoInset>
+        {!hasValidDate && (
+          <Text style={styles.dateHintText}>Enter a real date, e.g. {todayDateOnly()}.</Text>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -305,6 +350,8 @@ export default function ReceiptScannerScreen() {
                 ? 'Confirm & update Store Prices'
                 : !hasValidStoreSelection
                 ? 'Select a store first'
+                : !hasValidDate
+                ? 'Enter a valid date first'
                 : 'Resolve flagged items first'}
             </Text>
           )}
@@ -371,6 +418,21 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 13,
     color: neumo.textPrimary,
+  },
+  dateInsetWrap: {
+    marginTop: 6,
+  },
+  dateInput: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: neumo.textPrimary,
+  },
+  dateHintText: {
+    ...neumoText.caption,
+    fontSize: 10,
+    color: neumo.dangerDark,
+    marginTop: 4,
   },
   title: {
     ...neumoText.heading,

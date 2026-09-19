@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardHeight } from '../utils/useKeyboardHeight';
 import { fetchItems, createItem } from '../api/itemApi';
 import { fetchStores, createStore, Store } from '../api/storeApi';
 import { updateStorePrices } from '../api/storePriceApi';
+import { getUserFriendlyErrorMessage } from '../api/httpClient';
 import { mergeCategories } from '../utils/categories';
 import { UNIT_OPTIONS } from '../utils/units';
 import { sanitizeDecimalInput, isValidPositiveNumber } from '../utils/inputSanitization';
 import { neumo, neumoText, NeumoInset, NeumoAccentRaised } from '../utils/neumorphic';
+import InlineErrorMessage from './InlineErrorMessage';
 
 const ADD_NEW_CATEGORY_VALUE = '__add_new_category__';
 const ADD_NEW_STORE_VALUE = '__add_new_store__';
@@ -33,6 +36,15 @@ interface AddItemModalProps {
  */
 export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalProps) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
+  // See useKeyboardHeight.ts - computed by hand since KeyboardAvoidingView
+  // doesn't reliably track the keyboard from inside a <Modal>.
+  const sheetMarginBottom = keyboardHeight;
+  const sheetMaxHeight =
+    keyboardHeight > 0
+      ? Math.min(windowHeight * 0.88, windowHeight - keyboardHeight - insets.top - 12)
+      : windowHeight * 0.88;
   const [stores, setStores] = useState<Store[]>([]);
   const [existingCategories, setExistingCategories] = useState<string[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
@@ -47,6 +59,7 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
   const [priceText, setPriceText] = useState('');
   const [quantityText, setQuantityText] = useState('1');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const categories = mergeCategories(existingCategories);
 
@@ -76,6 +89,7 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
     setNewStoreText('');
     setPriceText('');
     setQuantityText('1');
+    setSaveError(null);
   };
 
   const handleClose = () => {
@@ -99,6 +113,10 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
       Alert.alert('Store name required', 'Type a name for the new store.');
       return;
     }
+    if (!storePickerValue) {
+      Alert.alert('Store required', 'Select a store or add a new store for this product.');
+      return;
+    }
     if (!isValidPositiveNumber(priceText, /* allowZero */ true)) {
       Alert.alert('Check price', 'Enter a valid price for this store.');
       return;
@@ -110,19 +128,20 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
 
     setIsSubmitting(true);
     try {
-      const item = await createItem(name.trim(), effectiveCategory, unit, isIngredient);
-
       const storeId =
         storePickerValue === ADD_NEW_STORE_VALUE
           ? (await createStore(newStoreText.trim())).id
           : storePickerValue;
 
+      const item = await createItem(name.trim(), effectiveCategory, unit, isIngredient, storeId);
       await updateStorePrices(storeId, [{ itemId: item.id, priceAmount: parseFloat(priceText) }], 'MANUAL');
       await onAdd(item.id, storeId, parseFloat(quantityText));
 
       resetForm();
     } catch (err) {
-      Alert.alert('Could not add product', 'Please check your connection and try again.');
+      setSaveError(
+        getUserFriendlyErrorMessage(err, 'add this product')
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -131,9 +150,14 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
-        <View style={[styles.sheet, { paddingBottom: 20 + insets.bottom }]}>
+        <View
+          style={[
+            styles.sheet,
+            { paddingBottom: 20 + insets.bottom, marginBottom: sheetMarginBottom, maxHeight: sheetMaxHeight },
+          ]}
+        >
           <Text style={styles.title}>New product</Text>
+          {saveError && <InlineErrorMessage title="Could not add product" message={saveError} />}
           <Text style={styles.subtitle}>
             Not in your catalog yet? Add it here and it'll go straight into your cart.
           </Text>
@@ -292,7 +316,6 @@ export default function AddItemModal({ visible, onCancel, onAdd }: AddItemModalP
             </TouchableOpacity>
           </View>
         </View>
-        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -304,15 +327,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(58,67,88,0.4)',
     justifyContent: 'flex-end',
   },
-  keyboardAvoiding: {
-    width: '100%',
-  },
   sheet: {
     backgroundColor: neumo.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    maxHeight: '88%',
+    width: '100%',
+    // maxHeight is set inline (see sheetMaxHeight) so it can react to the keyboard.
   },
   title: {
     ...neumoText.heading,

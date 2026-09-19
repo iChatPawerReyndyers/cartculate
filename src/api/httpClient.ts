@@ -8,6 +8,30 @@ export class ApiError extends Error {
   }
 }
 
+export function getUserFriendlyErrorMessage(error: unknown, action: string): string {
+  if (error instanceof ApiError) {
+    if (error.status === 0) {
+      return `We couldn't connect while trying to ${action}. Check your connection and try again.`;
+    }
+    if (error.status === 400) {
+      return `Some of the information is not valid. Check the form and try to ${action} again.`;
+    }
+    if (error.status === 401 || error.status === 403) {
+      return `You don't have permission to ${action}. Please sign in again and try once more.`;
+    }
+    if (error.status === 404) {
+      return `We couldn't find what was needed to ${action}. Refresh the app and try again.`;
+    }
+    if (error.status === 409) {
+      return `This conflicts with an existing product or store. Check the details and try again.`;
+    }
+    if (error.status >= 500) {
+      return `Something went wrong while trying to ${action}. Please try again in a moment.`;
+    }
+  }
+  return `We couldn't ${action}. Please try again.`;
+}
+
 /**
  * Wraps fetch() with consistent error handling: throws ApiError on non-2xx
  * responses, returns parsed JSON on success. Pass expectJson=false for

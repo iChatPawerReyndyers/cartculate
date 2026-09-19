@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { sanitizeDecimalInput, isValidPositiveNumber } from '../utils/inputSanitization';
 import { neumo, neumoText, NeumoAccentRaised, NeumoInset } from '../utils/neumorphic';
+import { useKeyboardHeight } from '../utils/useKeyboardHeight';
 
 interface EditPriceModalProps {
   visible: boolean;
@@ -22,6 +23,14 @@ export default function EditPriceModal({
   onCancel,
   onSave,
 }: EditPriceModalProps) {
+  const { height: windowHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
+  // See useKeyboardHeight.ts - computed by hand since KeyboardAvoidingView
+  // doesn't reliably track the keyboard from inside a <Modal>. Centered
+  // dialog, so the fix is the same idea as the bottom sheets: lift clear
+  // of the keyboard and cap the height so it can't be pushed off-screen.
+  const sheetMarginBottom = keyboardHeight;
+  const sheetMaxHeight = keyboardHeight > 0 ? windowHeight - keyboardHeight - 48 : undefined;
   const [priceText, setPriceText] = useState('');
 
   useEffect(() => {
@@ -39,8 +48,7 @@ export default function EditPriceModal({
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onCancel}>
       <View style={styles.overlay}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
-          <View style={styles.sheet}>
+        <View style={[styles.sheet, { marginBottom: sheetMarginBottom, maxHeight: sheetMaxHeight }]}>
             <Text style={styles.title}>Edit price</Text>
             <Text style={styles.subtitle}>{itemName} at {storeName}</Text>
             <NeumoInset borderRadius={neumo.radiusSm} style={styles.inputInset}>
@@ -67,7 +75,6 @@ export default function EditPriceModal({
               </TouchableOpacity>
             </View>
           </View>
-        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -75,7 +82,6 @@ export default function EditPriceModal({
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: 'rgba(58,67,88,0.35)' },
-  keyboardAvoiding: { width: '100%' },
   sheet: { width: '100%', maxWidth: 360, padding: 18, borderRadius: 16, backgroundColor: neumo.background },
   title: { ...neumoText.heading, fontSize: 18, marginBottom: 4 },
   subtitle: { ...neumoText.caption, fontSize: 12, marginBottom: 14 },

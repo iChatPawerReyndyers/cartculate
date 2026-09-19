@@ -1,13 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, FlatList, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, FlatList, Alert, ScrollView, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { neumo, neumoText, NeumoRaised, NeumoInset } from '../utils/neumorphic';
+import { useKeyboardHeight } from '../utils/useKeyboardHeight';
 import { Item } from '../types';
 import { CategoryDefaultStore } from '../types';
 import { createItem } from '../api/itemApi';
 import { updateStorePrices } from '../api/storePriceApi';
+import { getUserFriendlyErrorMessage } from '../api/httpClient';
 import { UNIT_OPTIONS, UNIT_MAX_LENGTH } from '../utils/units';
 import { sanitizeDecimalInput, isValidPositiveNumber } from '../utils/inputSanitization';
 import SelectField from './SelectField';
+import InlineErrorMessage from './InlineErrorMessage';
 
 const ADD_NEW_UNIT_VALUE = '__add_new_unit__';
 const NO_UNIT_VALUE = '__no_unit__';
@@ -44,6 +48,16 @@ export default function IngredientPickerModal({
   onSelect,
   onItemCreated,
 }: IngredientPickerModalProps) {
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
+  // See useKeyboardHeight.ts - computed by hand since KeyboardAvoidingView
+  // doesn't reliably track the keyboard from inside a <Modal>.
+  const sheetMarginBottom = keyboardHeight;
+  const sheetMaxHeight =
+    keyboardHeight > 0
+      ? Math.min(windowHeight * 0.85, windowHeight - keyboardHeight - insets.top - 12)
+      : windowHeight * 0.85;
   const [query, setQuery] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState('');
@@ -52,6 +66,7 @@ export default function IngredientPickerModal({
   const [customUnit, setCustomUnit] = useState('');
   const [priceText, setPriceText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -67,6 +82,7 @@ export default function IngredientPickerModal({
     setUnitPickerValue(NO_UNIT_VALUE);
     setCustomUnit('');
     setPriceText('');
+    setSaveError(null);
     onCancel();
   };
 
@@ -110,7 +126,9 @@ export default function IngredientPickerModal({
       onSelect(created);
       resetAndClose();
     } catch (err) {
-      Alert.alert('Could not add product', 'Please check your connection and try again.');
+      setSaveError(
+        getUserFriendlyErrorMessage(err, 'add this product')
+      );
     } finally {
       setIsSaving(false);
     }
@@ -124,9 +142,13 @@ export default function IngredientPickerModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={resetAndClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={resetAndClose}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
-        <TouchableOpacity activeOpacity={1} style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+        <TouchableOpacity
+          activeOpacity={1}
+          style={[styles.sheet, { marginBottom: sheetMarginBottom, maxHeight: sheetMaxHeight }]}
+          onPress={(e) => e.stopPropagation()}
+        >
           <Text style={styles.title}>Select ingredient</Text>
+          {saveError && <InlineErrorMessage title="Could not add product" message={saveError} />}
 
           {!showCreateForm && (
             <>
@@ -263,7 +285,6 @@ export default function IngredientPickerModal({
             </ScrollView>
           )}
         </TouchableOpacity>
-        </KeyboardAvoidingView>
       </TouchableOpacity>
     </Modal>
   );
@@ -275,15 +296,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(58,67,88,0.35)',
     justifyContent: 'flex-end',
   },
-  keyboardAvoiding: {
-    width: '100%',
-  },
   sheet: {
     backgroundColor: neumo.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 16,
-    maxHeight: '85%',
+    width: '100%',
+    // maxHeight is set inline (see sheetMaxHeight) so it can react to the keyboard.
   },
   title: {
     ...neumoText.subheading,

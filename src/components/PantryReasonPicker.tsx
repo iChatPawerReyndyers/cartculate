@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
 import { neumoText, NeumoRaised } from '../utils/neumorphic';
+import { useKeyboardHeight } from '../utils/useKeyboardHeight';
 
 const QUICK_REASONS = ['📦 Freezer Find', '🥫 Pantry Stock', '🎁 Leftovers'];
 
@@ -39,6 +40,18 @@ export default function PantryReasonPicker({
   onSave,
   subtitle,
 }: PantryReasonPickerProps) {
+  const { height: windowHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
+  // See useKeyboardHeight.ts - computed by hand since KeyboardAvoidingView
+  // doesn't reliably track the keyboard from inside a <Modal>. This dialog
+  // is centered rather than a bottom sheet, but the same idea applies:
+  // lift it clear of the keyboard (marginBottom) and cap its height so it
+  // can't be pushed off the top of the screen once lifted.
+  const sheetMarginBottom = keyboardHeight;
+  const sheetMaxHeight =
+    keyboardHeight > 0
+      ? Math.min(windowHeight * 0.9, windowHeight - keyboardHeight - 48)
+      : windowHeight * 0.9;
   const [customText, setCustomText] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
 
@@ -61,8 +74,11 @@ export default function PantryReasonPicker({
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onCancel}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onCancel}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoiding}>
-        <TouchableOpacity activeOpacity={1} style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+        <TouchableOpacity
+          activeOpacity={1}
+          style={[styles.sheet, { marginBottom: sheetMarginBottom, maxHeight: sheetMaxHeight }]}
+          onPress={(e) => e.stopPropagation()}
+        >
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <Text style={styles.title}>Pantry Treasure Found! 🏴‍☠️</Text>
           {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
@@ -116,7 +132,6 @@ export default function PantryReasonPicker({
           )}
           </ScrollView>
         </TouchableOpacity>
-        </KeyboardAvoidingView>
       </TouchableOpacity>
     </Modal>
   );
@@ -130,17 +145,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
-  keyboardAvoiding: {
-    width: '100%',
-  },
   sheet: {
     backgroundColor: WARM_BG,
     borderWidth: 1,
     borderColor: WARM_BORDER,
     borderRadius: 16,
     padding: 16,
-    width: '100%',
-    maxWidth: 340,
+    width: '90%',
+    maxWidth: 420,
   },
   title: {
     ...neumoText.subheading,
